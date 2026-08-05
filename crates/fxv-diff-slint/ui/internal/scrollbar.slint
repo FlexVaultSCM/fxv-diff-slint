@@ -1,0 +1,50 @@
+import { DiffStyle } from "style.slint";
+
+// Horizontal scrollbar for a diff view.
+//
+// Only needed when two views scroll together: each one already shows its own bar, and two bars
+// that always agree is worse than one. Turn theirs off and bind this to both.
+//
+// Hand-built because Slint exposes no public ScrollBar.
+export component DiffScrollbar {
+    // Total scrollable width. With two panes, they share one value, so either will do.
+    in property <length> scrollable-width;
+    // Width visible at once. With two panes, one pane's worth, since they move together.
+    in property <length> visible-width;
+    /// Scroll position, matching a view's `scroll-x`: zero at the left, negative as it moves.
+    in-out property <length> scroll-x;
+
+    out property <length> range: max(0px, root.scrollable-width - root.visible-width);
+
+    height: 10px;
+
+    public function scroll-to(x: length) {
+        root.scroll-x = clamp(x, -root.range, 0px);
+    }
+
+    Rectangle {
+        background: DiffStyle.gutter-background;
+
+        i-drag := TouchArea {
+            moved => {
+                if (self.pressed) {
+                    root.scroll-to(root.scroll-x - (self.mouse-x - self.pressed-x));
+                }
+            }
+        }
+
+        Rectangle {
+            visible: root.range > 0px;
+            // Both divisors are zero whenever the content fits, which would put a NaN into
+            // the geometry.
+            x: root.range > 0px
+                ? (parent.width - self.width) * (-root.scroll-x / root.range)
+                : 0px;
+            width: root.scrollable-width > 0px
+                ? max(24px, parent.width * (root.visible-width / root.scrollable-width))
+                : parent.width;
+            height: parent.height;
+            background: DiffStyle.separator-color;
+        }
+    }
+}

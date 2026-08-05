@@ -3,22 +3,27 @@ import { DiffRow, DiffRowKind, DiffSide } from "types.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
 //
-// The body clips its content and shifts it by a pan offset shared with every other row,
-// rather than being a scroll container of its own. ListView will not scroll horizontally: it
-// computes its own viewport width and discards any value set on it. Panning each row by a
-// common offset moves them in lockstep without nesting scroll containers or giving up
-// ListView's vertical virtualization.
+// The row declares a minimum width covering the gutter and the widest line. That is what makes
+// the list scroll sideways: a ListView takes its scrollable width from the largest minimum
+// width among its rows, and ignores any width assigned to its viewport.
+//
+// The gutter is positioned against the scroll offset rather than laid out beside the body, so
+// it stays against the left edge while the content slides underneath it. It is drawn after the
+// body so that content passing behind it is covered rather than showing through.
 export component DiffRowView {
     in property <DiffRow> data;
     in property <length> advance;
     in property <length> letter-spacing;
     in property <length> gutter-width;
-    in property <length> pan-offset;
+    in property <length> content-width;
+    /// The list's horizontal scroll position. Zero at the left, negative as it moves right.
+    in property <length> scroll-x;
     in property <bool> show-line-numbers: true;
     // Which side's numbers to show. A pane of a side-by-side view shows only its own.
     in property <DiffSide> number-side: DiffSide.both;
 
     callback clicked();
+
 
     // Rows that stand for content have line numbers; the rest do not. A filler has none
     // either, but it is still a line's worth of one side of the diff.
@@ -32,77 +37,76 @@ export component DiffRowView {
     out property <bool> spans-gutter: root.data.kind == DiffRowKind.gap
         || root.data.kind == DiffRowKind.header;
 
-    HorizontalLayout {
-        spacing: 0px;
+    Rectangle {
+        // This minimum is what gives the list something to scroll to. It has to sit on a
+        // child: a minimum set on the component root does not reach the layout information a
+        // ListView measures, so the list would size itself to the window and the longest
+        // lines would simply be unreachable.
+        min-width: root.gutter-width + root.content-width;
+        background: root.data.kind == DiffRowKind.added ? DiffStyle.added-background
+            : root.data.kind == DiffRowKind.removed ? DiffStyle.removed-background
+            : root.data.kind == DiffRowKind.gap ? DiffStyle.gap-background
+            : root.data.kind == DiffRowKind.filler ? DiffStyle.filler-background
+            : DiffStyle.context-background;
 
-        if root.show-line-numbers && !root.spans-gutter: Rectangle {
-            width: root.gutter-width;
-            background: DiffStyle.gutter-background;
-
-            HorizontalLayout {
-                padding-left: DiffStyle.gutter-padding;
-                padding-right: DiffStyle.gutter-padding;
-                spacing: DiffStyle.gutter-padding;
-
-                if root.number-side != DiffSide.right: Text {
-                    width: 4 * root.advance;
-                    // Zero means this row has no line on that side. Gaps and fillers do carry
-                    // numbers, since expanding a gap has to know where to read from, but they
-                    // are not shown: a number against a gap reads as if the gap were that line.
-                    text: root.numbered && root.data.left-line > 0 ? root.data.left-line : "";
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                    font-family: DiffStyle.font-family;
-                    font-size: DiffStyle.font-size;
-                    color: DiffStyle.gutter-text-color;
-                }
-
-                if root.number-side != DiffSide.left: Text {
-                    width: 4 * root.advance;
-                    text: root.numbered && root.data.right-line > 0 ? root.data.right-line : "";
-                    horizontal-alignment: right;
-                    vertical-alignment: center;
-                    font-family: DiffStyle.font-family;
-                    font-size: DiffStyle.font-size;
-                    color: DiffStyle.gutter-text-color;
-                }
+        i-touch := TouchArea {
+            clicked => {
+                root.clicked();
             }
         }
 
-        Rectangle {
-            clip: true;
-            background: root.data.kind == DiffRowKind.added ? DiffStyle.added-background
-                : root.data.kind == DiffRowKind.removed ? DiffStyle.removed-background
-                : root.data.kind == DiffRowKind.gap ? DiffStyle.gap-background
-                : root.data.kind == DiffRowKind.filler ? DiffStyle.filler-background
-                : DiffStyle.context-background;
+        Text {
+            // Content sits to the right of the gutter and scrolls with the list. Gaps and
+            // headers describe the file rather than sitting in it, so they are pinned against
+            // the visible left edge instead.
+            x: root.spans-gutter
+                ? -root.scroll-x + DiffStyle.gutter-padding
+                : (root.show-line-numbers ? root.gutter-width : 0px);
+            y: 0;
+            height: parent.height;
+            text: root.data.kind == DiffRowKind.gap
+                ? "  " + root.data.hidden-count + " hidden lines"
+                    + (root.data.text == "" ? "" : "    " + root.data.text)
+                : root.data.text;
+            font-family: DiffStyle.font-family;
+            font-size: DiffStyle.font-size;
+            letter-spacing: root.letter-spacing;
+            color: DiffStyle.text-color;
+            vertical-alignment: center;
+        }
+    }
 
-            i-touch := TouchArea {
-                clicked => { root.clicked(); }
-            }
+    if root.show-line-numbers && !root.spans-gutter: Rectangle {
+        x: -root.scroll-x;
+        width: root.gutter-width;
+        background: DiffStyle.gutter-background;
 
-            // No explicit width. A Text narrower than its content clips it, and the
-            // clipped remainder cannot be reached by panning either, so a line longer than
-            // the caller's column estimate would be silently truncated. Letting it size
-            // itself means a wrong estimate only limits how far the view pans.
-            Text {
-                // Gaps and headers describe the file rather than sitting in it, so they stay
-                // put when the content is panned sideways.
-                x: root.spans-gutter ? DiffStyle.gutter-padding : -root.pan-offset;
-                y: 0;
-                height: parent.height;
-                // A gap has no content of its own, so it says how much it is hiding. Any
-                // text it does carry is the heading of the hunk it precedes, which is the
-                // most useful hint about what has been skipped over.
-                text: root.data.kind == DiffRowKind.gap
-                    ? "  " + root.data.hidden-count + " hidden lines"
-                        + (root.data.text == "" ? "" : "    " + root.data.text)
-                    : root.data.text;
+        HorizontalLayout {
+            padding-left: DiffStyle.gutter-padding;
+            padding-right: DiffStyle.gutter-padding;
+            spacing: DiffStyle.gutter-padding;
+
+            if root.number-side != DiffSide.right: Text {
+                width: 4 * root.advance;
+                // Zero means this row has no line on that side. Gaps and fillers do carry
+                // numbers, since expanding a gap has to know where to read from, but showing
+                // one against a blank row would misdescribe it.
+                text: root.numbered && root.data.left-line > 0 ? root.data.left-line : "";
+                horizontal-alignment: right;
+                vertical-alignment: center;
                 font-family: DiffStyle.font-family;
                 font-size: DiffStyle.font-size;
-                letter-spacing: root.letter-spacing;
-                color: DiffStyle.text-color;
+                color: DiffStyle.gutter-text-color;
+            }
+
+            if root.number-side != DiffSide.left: Text {
+                width: 4 * root.advance;
+                text: root.numbered && root.data.right-line > 0 ? root.data.right-line : "";
+                horizontal-alignment: right;
                 vertical-alignment: center;
+                font-family: DiffStyle.font-family;
+                font-size: DiffStyle.font-size;
+                color: DiffStyle.gutter-text-color;
             }
         }
     }

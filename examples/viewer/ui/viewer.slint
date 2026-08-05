@@ -1,21 +1,32 @@
-import { Button } from "std-widgets.slint";
-import { DiffView, DiffPanScrollbar, DiffRow, DiffSide, DiffStyle } from "@FxvDiff";
+import { Button, ComboBox } from "std-widgets.slint";
+import { DiffView, DiffScrollbar, DiffRow, DiffSide, DiffStyle } from "@FxvDiff";
 
 export component MainWindow inherits Window {
+    in property <[string]> sample-names;
+    in property <[string]> file-names;
+    in-out property <int> current-sample;
+    in-out property <int> current-file;
+
     in property <[DiffRow]> inline-rows;
     in property <int> inline-columns;
 
     in property <[DiffRow]> left-rows;
     in property <[DiffRow]> right-rows;
-    in property <int> left-columns;
-    in property <int> right-columns;
+    // One value for both panes: differing scrollable widths would let the sides drift apart.
+    in property <int> split-columns;
 
-    in property <string> file-path;
+    // Shown instead of the view when the selected file has nothing to render, which is the
+    // case for a binary file or a change that only altered the mode.
+    in property <string> status;
+
     in-out property <bool> side-by-side: false;
 
+    callback sample-changed(int);
+    callback file-changed(int);
+
     // Ties the two panes together: both views bind to these, so moving either moves both.
-    in-out property <length> shared-scroll: 0px;
-    in-out property <length> shared-pan: 0px;
+    in-out property <length> shared-scroll-y: 0px;
+    in-out property <length> shared-scroll-x: 0px;
 
     title: "fxv-diff-slint viewer";
     preferred-width: 1300px;
@@ -34,22 +45,35 @@ export component MainWindow inherits Window {
 
     VerticalLayout {
         Rectangle {
-            height: 34px;
+            height: 40px;
             background: DiffStyle.gutter-background;
 
             HorizontalLayout {
-                padding-left: 8px;
-                padding-right: 8px;
-                padding-top: 4px;
-                padding-bottom: 4px;
+                padding: 6px;
                 spacing: 8px;
 
-                Text {
-                    text: root.file-path;
-                    vertical-alignment: center;
+                ComboBox {
+                    width: 220px;
+                    model: root.sample-names;
+                    current-index <=> root.current-sample;
+                    selected => {
+                        root.sample-changed(self.current-index);
+                        i-keys.focus();
+                    }
+                }
+
+                ComboBox {
+                    width: 340px;
+                    model: root.file-names;
+                    current-index <=> root.current-file;
+                    selected => {
+                        root.file-changed(self.current-index);
+                        i-keys.focus();
+                    }
+                }
+
+                Rectangle {
                     horizontal-stretch: 1;
-                    font-family: DiffStyle.font-family;
-                    color: DiffStyle.text-color;
                 }
 
                 Button {
@@ -62,11 +86,21 @@ export component MainWindow inherits Window {
             }
         }
 
-        if !root.side-by-side: DiffView {
+        if root.status != "": Rectangle {
+            Text {
+                text: root.status;
+                font-family: DiffStyle.font-family;
+                color: DiffStyle.gutter-text-color;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        if root.status == "" && !root.side-by-side: DiffView {
             rows: root.inline-rows;
             longest-line-columns: root.inline-columns;
-            scroll-y <=> root.shared-scroll;
-            pan-offset <=> root.shared-pan;
+            scroll-y <=> root.shared-scroll-y;
+            scroll-x <=> root.shared-scroll-x;
 
             line-clicked(ref) => {
                 debug("line clicked", ref.side, ref.line);
@@ -79,18 +113,18 @@ export component MainWindow inherits Window {
 
         // The panes and the bar that drives them share one conditional block: an id declared
         // inside an `if` is not visible from a sibling one.
-        if root.side-by-side: VerticalLayout {
+        if root.status == "" && root.side-by-side: VerticalLayout {
             HorizontalLayout {
                 spacing: 1px;
 
                 i-left := DiffView {
                     rows: root.left-rows;
-                    longest-line-columns: root.left-columns;
+                    longest-line-columns: root.split-columns;
                     number-side: DiffSide.left;
-                    scroll-y <=> root.shared-scroll;
-                    pan-offset <=> root.shared-pan;
-                    // One bar below drives both panes.
-                    show-scrollbar: false;
+                    scroll-y <=> root.shared-scroll-y;
+                    scroll-x <=> root.shared-scroll-x;
+                            // One bar below drives both panes.
+                    show-horizontal-scrollbar: false;
                     // Overrides the content-derived preference so the two panes split the
                     // width evenly instead of sizing to their own longest line.
                     preferred-width: 0px;
@@ -106,11 +140,11 @@ export component MainWindow inherits Window {
 
                 i-right := DiffView {
                     rows: root.right-rows;
-                    longest-line-columns: root.right-columns;
+                    longest-line-columns: root.split-columns;
                     number-side: DiffSide.right;
-                    scroll-y <=> root.shared-scroll;
-                    pan-offset <=> root.shared-pan;
-                    show-scrollbar: false;
+                    scroll-y <=> root.shared-scroll-y;
+                    scroll-x <=> root.shared-scroll-x;
+                            show-horizontal-scrollbar: false;
                     preferred-width: 0px;
 
                     line-clicked(ref) => {
@@ -123,13 +157,13 @@ export component MainWindow inherits Window {
                 }
             }
 
-            DiffPanScrollbar {
-                // The panes move together, so the range is whichever has more to show and a
-                // page is one pane's width.
-                content-width: max(i-left.content-width, i-right.content-width);
-                visible-width: i-left.visible-content-width;
-                pan-offset <=> root.shared-pan;
-            }
+            DiffScrollbar {
+                // Both panes are given the same longest-line count, so their scrollable
+                // widths match and either one describes the range.
+                scrollable-width: i-left.scrollable-width;
+                visible-width: i-left.visible-width;
+                scroll-x <=> root.shared-scroll-x;
+                }
         }
     }
 }

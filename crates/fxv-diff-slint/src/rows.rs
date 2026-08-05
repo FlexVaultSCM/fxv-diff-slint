@@ -104,6 +104,19 @@ pub struct SideBySideRows {
     pub right: Rows,
 }
 
+impl SideBySideRows {
+    /// The column count both panes should be sized by.
+    ///
+    /// It is the wider of the two on purpose. The panes scroll horizontally together, so
+    /// giving each its own width would make their scroll ranges differ and let the sides drift
+    /// out of step as the view moves sideways.
+    pub fn longest_line_columns(&self) -> u32 {
+        self.left
+            .longest_line_columns
+            .max(self.right.longest_line_columns)
+    }
+}
+
 /// Builds the rows for a single-column view showing removals above additions.
 pub fn build_inline(file: &FileDiff, opts: &RowOptions) -> Rows {
     let mut rows = Vec::new();

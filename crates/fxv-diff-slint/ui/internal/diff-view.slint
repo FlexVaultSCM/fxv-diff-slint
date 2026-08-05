@@ -2,34 +2,36 @@ import { ListView } from "std-widgets.slint";
 import { DiffStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
 import { DiffRowView } from "row.slint";
-import { PanScrollbar } from "pan-scrollbar.slint";
 import { DiffRow, DiffRowKind, DiffSide, DiffLineRef, GapExpandRequest } from "types.slint";
 
 // The diff viewer.
 //
 // A single flat list of rows drives it. Inline and side-by-side differ only in how that list
 // was built, not in how it is drawn, so there is one view component rather than two.
+//
+// Both axes scroll natively. The horizontal range comes from the rows' minimum width, which is
+// what a ListView measures to size its scrollable area; assigning its viewport width instead
+// does nothing, because it recomputes that from its rows.
 export component DiffView {
     in property <[DiffRow]> rows;
     in property <bool> show-line-numbers: true;
-    // Turned off when something outside drives the panning, so a side-by-side view can show
-    // one bar for both panes instead of two that always agree.
-    in property <bool> show-scrollbar: true;
     // Which side's line numbers the gutter carries. A pane of a side-by-side view sets this to
     // its own side; a single inline view leaves it showing both.
     in property <DiffSide> number-side: DiffSide.both;
+    // Turned off when something outside drives the horizontal scrolling, so a side-by-side
+    // view can show one bar for both panes instead of two that always agree.
+    in property <bool> show-horizontal-scrollbar: true;
 
-    // How many columns the longest line in `rows` occupies. This is a property of the
-    // content, not of the viewport: the scrollable extent is content width minus visible
-    // width, and only the second half is something the layout knows.
+    // How many columns the longest line in `rows` occupies. This is a property of the content,
+    // not of the viewport.
     //
     // It has to be supplied because it cannot be derived here. Slint has no aggregate over a
     // model, and iterating would not help: ListView only instantiates visible rows, so a
     // maximum taken over them would change as the view scrolls. Whatever builds the row list
     // computes this in the same pass.
     //
-    // Nothing is clipped if it is wrong. Too small means the end of the longest line cannot
-    // be scrolled to; too large allows panning past the content.
+    // Two panes shown side by side must be given the same value, or their scrollable widths
+    // differ and the sides drift apart horizontally.
     in property <int> longest-line-columns: 120;
 
     callback line-clicked(DiffLineRef);
@@ -41,7 +43,6 @@ export component DiffView {
     out property <length> row-height: i-metrics.row-height;
     out property <length> content-width: root.longest-line-columns * i-metrics.advance;
 
-    // Two line number columns, with padding outside both and between them.
     // One number column per side shown, four digits wide, with padding outside and between.
     out property <int> columns-shown: root.number-side == DiffSide.both ? 2 : 1;
     out property <length> gutter-width: root.show-line-numbers
@@ -49,66 +50,56 @@ export component DiffView {
             + (root.columns-shown + 1) * DiffStyle.gutter-padding
         : 0px;
 
-    // Horizontal pan, shared by every row and never negative.
-    in-out property <length> pan-offset: 0px;
+    out property <length> scrollable-width: root.gutter-width + root.content-width;
 
-    // Vertical scroll position, exposed so two views showing the same diff side by side can
-    // be tied together. Negative as it scrolls down, matching the underlying viewport.
+    // Scroll position, exposed so two views showing the same diff side by side can be tied
+    // together. Both are zero at the start and negative as they move.
+    in-out property <length> scroll-x <=> i-list.viewport-x;
     in-out property <length> scroll-y <=> i-list.viewport-y;
 
-    // Width available to content, once the gutter has taken its share.
-    out property <length> visible-content-width: max(0px, root.width - root.gutter-width);
-
-    out property <length> max-pan: max(0px, root.content-width - root.visible-content-width);
+    out property <length> visible-width <=> i-list.visible-width;
 
     // Derived from the character cell and the content, never from root.width: reading the
     // view's own width here would make the layout depend on a value the layout produces.
-    preferred-width: root.gutter-width + root.content-width;
+    preferred-width: root.scrollable-width;
     preferred-height: 25 * root.row-height;
     min-height: 3 * root.row-height;
     horizontal-stretch: 1;
     vertical-stretch: 1;
 
-    public function pan-to(x: length) {
-        root.pan-offset = clamp(x, 0px, root.max-pan);
-    }
+    i-list := ListView {
+        horizontal-scrollbar-policy: root.show-horizontal-scrollbar
+            ? ScrollBarPolicy.as-needed
+            : ScrollBarPolicy.always-off;
 
-    VerticalLayout {
-        i-list := ListView {
-            for r[i] in root.rows: DiffRowView {
-                height: root.row-height;
-                data: r;
-                advance: i-metrics.advance;
-                letter-spacing: i-metrics.letter-spacing;
-                gutter-width: root.gutter-width;
-                pan-offset: root.pan-offset;
-                show-line-numbers: root.show-line-numbers;
-                number-side: root.number-side;
+        for r[i] in root.rows: DiffRowView {
+            height: root.row-height;
+            data: r;
+            advance: i-metrics.advance;
+            letter-spacing: i-metrics.letter-spacing;
+            gutter-width: root.gutter-width;
+            content-width: root.content-width;
+            scroll-x: root.scroll-x;
+            show-line-numbers: root.show-line-numbers;
+            number-side: root.number-side;
 
-                clicked => {
-                    if (r.kind == DiffRowKind.gap) {
-                        root.gap-expand-requested({
-                            side: DiffSide.both,
-                            start-line: r.right-line,
-                            count: r.hidden-count,
-                        });
-                    } else {
-                        root.line-clicked({
-                            side: r.kind == DiffRowKind.removed ? DiffSide.left
-                                : r.kind == DiffRowKind.added ? DiffSide.right
-                                : DiffSide.both,
-                            line: r.kind == DiffRowKind.removed ? r.left-line
-                                : r.right-line,
-                        });
-                    }
+            clicked => {
+                if (r.kind == DiffRowKind.gap) {
+                    root.gap-expand-requested({
+                        side: DiffSide.both,
+                        start-line: r.right-line,
+                        count: r.hidden-count,
+                    });
+                } else {
+                    root.line-clicked({
+                        side: r.kind == DiffRowKind.removed ? DiffSide.left
+                            : r.kind == DiffRowKind.added ? DiffSide.right
+                            : DiffSide.both,
+                        line: r.kind == DiffRowKind.removed ? r.left-line
+                            : r.right-line,
+                    });
                 }
             }
-        }
-
-        if root.show-scrollbar: PanScrollbar {
-            content-width: root.content-width;
-            visible-width: root.visible-content-width;
-            pan-offset <=> root.pan-offset;
         }
     }
 }

@@ -1,0 +1,885 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index a0a2af3..7c44471 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -1040,6 +1040,15 @@ dependencies = [
+  "syn 3.0.3",
+ ]
+ 
++[[package]]
++name = "diffy"
++version = "0.5.1"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "10aec8f7f9393bd6a4f2762be0ceb012d3cbe2478987258cc9960de148561914"
++dependencies = [
++ "hashbrown 0.17.1",
++]
++
+ [[package]]
+ name = "dispatch"
+ version = "0.2.0"
+@@ -1554,9 +1563,11 @@ dependencies = [
+ name = "fxv-diff-slint"
+ version = "0.1.0"
+ dependencies = [
++ "diffy",
+  "i-slint-backend-testing",
+  "slint",
+  "slint-build",
++ "snafu 0.9.2",
+ ]
+ 
+ [[package]]
+@@ -4026,7 +4037,7 @@ checksum = "4fda9a7796aff63a7b1b39ccc93fffaaf65e20042984b4843041a49ca4677535"
+ dependencies = [
+  "lazy_static",
+  "natord",
+- "snafu",
++ "snafu 0.8.9",
+  "unicode-linebreak",
+  "unicode-width",
+ ]
+@@ -4483,7 +4494,16 @@ version = "0.8.9"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "6e84b3f4eacbf3a1ce05eac6763b4d629d60cbc94d632e4092c54ade71f1e1a2"
+ dependencies = [
+- "snafu-derive",
++ "snafu-derive 0.8.9",
++]
++
++[[package]]
++name = "snafu"
++version = "0.9.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "e45cb604038abb7b926b679887b3226d8d0f23874b66623625a0454be425a4b7"
++dependencies = [
++ "snafu-derive 0.9.2",
+ ]
+ 
+ [[package]]
+@@ -4498,6 +4518,18 @@ dependencies = [
+  "syn 2.0.119",
+ ]
+ 
++[[package]]
++name = "snafu-derive"
++version = "0.9.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "287f59010008f0d7cf5e3b03196d666c1acc46c8d3e9cf34c28a1a7157601e72"
++dependencies = [
++ "heck",
++ "proc-macro2",
++ "quote",
++ "syn 2.0.119",
++]
++
+ [[package]]
+ name = "softbuffer"
+ version = "0.4.8"
+diff --git a/crates/fxv-diff-slint/Cargo.toml b/crates/fxv-diff-slint/Cargo.toml
+index 8cd69d5..efde759 100644
+--- a/crates/fxv-diff-slint/Cargo.toml
++++ b/crates/fxv-diff-slint/Cargo.toml
+@@ -13,11 +13,17 @@ repository.workspace = true
+ links = "FxvDiff"
+ 
+ [dependencies]
++# Handles the format's awkward corners: git extended headers, binary markers, and the
++# `\ No newline at end of file` convention.
++diffy = { version = "0.5", default-features = false, features = ["std"] }
++
+ # No backend and no renderer: those are the embedding application's choice. Cargo unions
+ # features across the dependency graph, so leaving them off here cannot take anything away
+ # from a consumer that enables them.
+ slint.workspace = true
+ 
++snafu = "0.9.2"
++
+ [build-dependencies]
+ slint-build = { workspace = true, features = ["experimental-module-builds"] }
+ 
+diff --git a/crates/fxv-diff-slint/src/lib.rs b/crates/fxv-diff-slint/src/lib.rs
+index 642f79a..e30f3d0 100644
+--- a/crates/fxv-diff-slint/src/lib.rs
++++ b/crates/fxv-diff-slint/src/lib.rs
+@@ -31,6 +31,12 @@
+ //! highlights and text on a character grid measured from the font, so a system font lookup
+ //! would make that grid vary by platform. Setting [`DiffStyle`]'s `font-family` overrides it.
+ 
++pub mod model;
++pub mod parse;
++
++pub use model::{DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind};
++pub use parse::{parse_unified_diff, ParseError};
++
+ pub mod ui {
+     //! Types generated from the crate's `.slint` sources.
+     //!
+diff --git a/crates/fxv-diff-slint/src/model.rs b/crates/fxv-diff-slint/src/model.rs
+new file mode 100644
+index 0000000..21e79be
+--- /dev/null
++++ b/crates/fxv-diff-slint/src/model.rs
+@@ -0,0 +1,119 @@
++//! The parsed representation of a diff.
++//!
++//! This is an owned, display-oriented model. It deliberately keeps the structure a unified
++//! diff describes, rather than flattening it into rows: the row list depends on the layout
++//! and on which gaps the user has expanded, and is built separately.
++
++/// One or more file diffs, as found in a single unified diff document.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct DiffSet {
++    pub files: Vec<FileDiff>,
++}
++
++impl DiffSet {
++    pub fn is_empty(&self) -> bool {
++        self.files.is_empty()
++    }
++}
++
++/// What happened to a file.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum FileChange {
++    Added,
++    Removed,
++    Modified,
++    Renamed,
++    Copied,
++}
++
++/// A file's permission bits, for the mode changes git records.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum FileMode {
++    Regular,
++    Executable,
++    Symlink,
++    /// A submodule reference.
++    Gitlink,
++}
++
++/// A file's contents, or the absence of them.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub enum FileContent {
++    Text {
++        hunks: Vec<Hunk>,
++    },
++    /// Git reports binary files without content. There is nothing to render but the header.
++    Binary,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct FileDiff {
++    /// Path on the left, absent when the file was added.
++    pub left_path: Option<String>,
++    /// Path on the right, absent when the file was removed.
++    pub right_path: Option<String>,
++    pub change: FileChange,
++    pub left_mode: Option<FileMode>,
++    pub right_mode: Option<FileMode>,
++    pub content: FileContent,
++}
++
++impl FileDiff {
++    /// The path to show for this file: the right-hand one where there is one, since that is
++    /// what the file is called after the change.
++    pub fn display_path(&self) -> &str {
++        self.right_path
++            .as_deref()
++            .or(self.left_path.as_deref())
++            .unwrap_or("")
++    }
++
++    pub fn hunks(&self) -> &[Hunk] {
++        match &self.content {
++            FileContent::Text { hunks } => hunks,
++            FileContent::Binary => &[],
++        }
++    }
++
++    pub fn is_binary(&self) -> bool {
++        matches!(self.content, FileContent::Binary)
++    }
++}
++
++/// A contiguous run of changed lines plus the context around it.
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct Hunk {
++    /// First line number covered on the left, 1-based.
++    ///
++    /// A hunk that only inserts covers no left lines, and by convention the header then names
++    /// the line the insertion follows, so this can be the line *before* the hunk.
++    pub left_start: u32,
++    pub left_len: u32,
++    pub right_start: u32,
++    pub right_len: u32,
++    /// The text trailing the `@@` markers. Git puts the enclosing function signature here.
++    pub heading: Option<String>,
++    pub lines: Vec<DiffLine>,
++}
++
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum LineKind {
++    /// Unchanged, present on both sides.
++    Context,
++    Added,
++    Removed,
++}
++
++#[derive(Debug, Clone, PartialEq, Eq)]
++pub struct DiffLine {
++    pub kind: LineKind,
++    /// The line's content, without the leading marker and without its line terminator.
++    pub text: String,
++    /// Line number on the left, 1-based. Absent for added lines.
++    pub left_line: Option<u32>,
++    /// Line number on the right, 1-based. Absent for removed lines.
++    pub right_line: Option<u32>,
++    /// The file this line came from does not end with a newline, and this is its last line.
++    /// Diffs render this as a `\ No newline at end of file` marker.
++    pub no_newline_at_eof: bool,
++}
+diff --git a/crates/fxv-diff-slint/src/parse.rs b/crates/fxv-diff-slint/src/parse.rs
+new file mode 100644
+index 0000000..04ec3e5
+--- /dev/null
++++ b/crates/fxv-diff-slint/src/parse.rs
+@@ -0,0 +1,414 @@
++//! Parsing unified diff text into [`DiffSet`].
++//!
++//! The lexing is delegated to `diffy`, which handles the format's awkward corners: git
++//! extended headers, binary markers, and the `\ No newline at end of file` convention. What
++//! is added here is an owned model with per-line numbers resolved, which a viewer needs and
++//! a patch applier does not.
++
++// == External Crates
++use diffy::patch_set::{FileOperation, ParseOptions, PatchKind, PatchSet, PatchSetParseError};
++use snafu::{ResultExt, Snafu};
++
++// == Internal Crates
++use crate::model::{
++    DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind,
++};
++
++/// Everything that can go wrong reading a diff.
++#[derive(Debug, Snafu)]
++pub enum ParseError {
++    /// The text is not a unified diff, or is one the parser cannot make sense of.
++    ///
++    /// The source is boxed rather than naming the underlying parser's error type, so that
++    /// swapping or upgrading that parser is not a breaking change to this crate's API.
++    #[snafu(display("malformed unified diff: {source}"))]
++    Malformed {
++        #[snafu(source(from(PatchSetParseError, Into::into)))]
++        source: Box<dyn std::error::Error + Send + Sync>,
++    },
++}
++
++/// Parses a unified diff, git-flavoured or plain.
++///
++/// Accepts a document covering any number of files.
++pub fn parse_unified_diff(text: &str) -> Result<DiffSet, ParseError> {
++    // A diff with no changes in it is a legitimate thing to be handed, not an error.
++    if text.trim().is_empty() {
++        return Ok(DiffSet::default());
++    }
++
++    // The two dialects each reject what the other accepts, so neither alone is enough:
++    //
++    //                        git dialect   plain dialect
++    //   bare ---/+++ header   rejected      accepted
++    //   rename                detected      reported as a modify
++    //   mode change           detected      lost
++    //   binary marker         detected      whole document rejected
++    //
++    // Git output is the common case and carries the most information, so it is tried first
++    // and the plain dialect only picks up what it turns away.
++    match collect(text, ParseOptions::gitdiff()) {
++        Ok(files) if !files.is_empty() => Ok(DiffSet { files }),
++        _ => collect(text, ParseOptions::unidiff()).map(|files| DiffSet { files }),
++    }
++}
++
++fn collect(text: &str, opts: ParseOptions) -> Result<Vec<FileDiff>, ParseError> {
++    PatchSet::parse(text, opts)
++        .map(|patch| patch.context(MalformedSnafu).map(|p| convert_file(&p)))
++        .collect()
++}
++
++fn convert_file(patch: &diffy::patch_set::FilePatch<'_, str>) -> FileDiff {
++    let (left_path, right_path, change) = match patch.operation() {
++        FileOperation::Create(p) => (None, Some(clean_path(p)), FileChange::Added),
++        FileOperation::Delete(p) => (Some(clean_path(p)), None, FileChange::Removed),
++        FileOperation::Modify { original, modified } => (
++            Some(clean_path(original)),
++            Some(clean_path(modified)),
++            FileChange::Modified,
++        ),
++        FileOperation::Rename { from, to } => (
++            Some(clean_path(from)),
++            Some(clean_path(to)),
++            FileChange::Renamed,
++        ),
++        FileOperation::Copy { from, to } => (
++            Some(clean_path(from)),
++            Some(clean_path(to)),
++            FileChange::Copied,
++        ),
++    };
++
++    let content = match patch.patch() {
++        PatchKind::Binary(_) => FileContent::Binary,
++        PatchKind::Text(text) => FileContent::Text {
++            hunks: text.hunks().iter().map(convert_hunk).collect(),
++        },
++    };
++
++    FileDiff {
++        left_path,
++        right_path,
++        change,
++        left_mode: patch.old_mode().map(convert_mode),
++        right_mode: patch.new_mode().map(convert_mode),
++        content,
++    }
++}
++
++fn convert_mode(mode: &diffy::patch_set::FileMode) -> FileMode {
++    use diffy::patch_set::FileMode as Src;
++    match mode {
++        Src::Regular => FileMode::Regular,
++        Src::Executable => FileMode::Executable,
++        Src::Symlink => FileMode::Symlink,
++        Src::Gitlink => FileMode::Gitlink,
++    }
++}
++
++fn convert_hunk(hunk: &diffy::Hunk<'_, str>) -> Hunk {
++    let left_start = hunk.old_range().start() as u32;
++    let right_start = hunk.new_range().start() as u32;
++
++    // The header gives each side's starting line; per-line numbers come from walking the
++    // hunk, since context advances both sides and a change advances only one.
++    let mut left_no = left_start;
++    let mut right_no = right_start;
++
++    let lines = hunk
++        .lines()
++        .iter()
++        .map(|line| {
++            let (kind, raw) = match line {
++                diffy::Line::Context(t) => (LineKind::Context, *t),
++                diffy::Line::Delete(t) => (LineKind::Removed, *t),
++                diffy::Line::Insert(t) => (LineKind::Added, *t),
++            };
++
++            // Content arrives with its line terminator still attached. A line missing one is
++            // how the parser represents `\ No newline at end of file`: rather than flagging
++            // it separately, it strips the newline from the line the marker followed.
++            let (text, had_terminator) = strip_terminator(raw);
++
++            let (left_line, right_line) = match kind {
++                LineKind::Context => {
++                    let pair = (Some(left_no), Some(right_no));
++                    left_no += 1;
++                    right_no += 1;
++                    pair
++                }
++                LineKind::Removed => {
++                    let pair = (Some(left_no), None);
++                    left_no += 1;
++                    pair
++                }
++                LineKind::Added => {
++                    let pair = (None, Some(right_no));
++                    right_no += 1;
++                    pair
++                }
++            };
++
++            DiffLine {
++                kind,
++                text: text.to_owned(),
++                left_line,
++                right_line,
++                no_newline_at_eof: !had_terminator,
++            }
++        })
++        .collect();
++
++    Hunk {
++        left_start,
++        left_len: hunk.old_range().len() as u32,
++        right_start,
++        right_len: hunk.new_range().len() as u32,
++        heading: hunk
++            .function_context()
++            .map(|c| strip_terminator(c).0.to_owned()),
++        lines,
++    }
++}
++
++/// Splits off a trailing line terminator, reporting whether there was one.
++///
++/// A carriage return is treated as part of the terminator rather than as content. It is a
++/// line-ending artifact, and leaving it in place renders as a stray glyph or a phantom
++/// column of whitespace.
++fn strip_terminator(line: &str) -> (&str, bool) {
++    match line.strip_suffix('\n') {
++        Some(rest) => (rest.strip_suffix('\r').unwrap_or(rest), true),
++        None => (line, false),
++    }
++}
++
++/// Removes the `a/` and `b/` prefixes git puts on paths.
++///
++/// Only those exact prefixes are removed. Plain `diff -u` output carries real paths that must
++/// be left alone, and stripping a leading component unconditionally would mangle them.
++fn clean_path(path: &str) -> String {
++    path.strip_prefix("a/")
++        .or_else(|| path.strip_prefix("b/"))
++        .unwrap_or(path)
++        .to_owned()
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    /// Fixtures are real `git diff` and `diff -u` output, generated from an actual
++    /// repository. Hand-writing them invites headers whose line counts do not match their
++    /// hunks, which the parser correctly rejects and which then looks like a parser bug.
++    fn fixture(name: &str) -> String {
++        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/");
++        std::fs::read_to_string(format!("{path}{name}.diff"))
++            .unwrap_or_else(|e| panic!("reading fixture {name}: {e}"))
++    }
++
++    fn one_file(name: &str) -> FileDiff {
++        let set = parse_unified_diff(&fixture(name)).expect("parse");
++        assert_eq!(set.files.len(), 1, "expected exactly one file in {name}");
++        set.files.into_iter().next().unwrap()
++    }
++
++    #[test]
++    fn strips_the_git_path_prefixes() {
++        let file = one_file("git_modify");
++        assert_eq!(file.left_path.as_deref(), Some("src/store.rs"));
++        assert_eq!(file.right_path.as_deref(), Some("src/store.rs"));
++        assert_eq!(file.change, FileChange::Modified);
++    }
++
++    #[test]
++    fn keeps_the_hunk_heading() {
++        let file = one_file("git_modify");
++        assert_eq!(
++            file.hunks()[0].heading.as_deref(),
++            Some("use std::collections::HashMap;")
++        );
++    }
++
++    #[test]
++    fn records_hunk_ranges() {
++        let file = one_file("git_modify");
++        let hunk = &file.hunks()[0];
++        assert_eq!((hunk.left_start, hunk.left_len), (2, 11));
++        assert_eq!((hunk.right_start, hunk.right_len), (2, 11));
++    }
++
++    #[test]
++    fn strips_the_leading_marker_from_line_text() {
++        let file = one_file("git_modify");
++        let lines = &file.hunks()[0].lines;
++        let removed: Vec<&str> = lines
++            .iter()
++            .filter(|l| l.kind == LineKind::Removed)
++            .map(|l| l.text.as_str())
++            .collect();
++        assert_eq!(removed[0], "        self.map.get(key)");
++    }
++
++    #[test]
++    fn numbers_lines_by_walking_the_hunk() {
++        let file = one_file("git_modify");
++        let lines = &file.hunks()[0].lines;
++
++        // Context advances both sides, a removal only the left, an addition only the right.
++        for line in lines {
++            match line.kind {
++                LineKind::Context => {
++                    assert!(line.left_line.is_some() && line.right_line.is_some());
++                }
++                LineKind::Removed => {
++                    assert!(line.left_line.is_some() && line.right_line.is_none());
++                }
++                LineKind::Added => {
++                    assert!(line.left_line.is_none() && line.right_line.is_some());
++                }
++            }
++        }
++
++        // The first line of the hunk carries the numbers from the header.
++        assert_eq!(lines[0].left_line, Some(2));
++        assert_eq!(lines[0].right_line, Some(2));
++
++        // Each side's numbers are consecutive with no gaps or repeats.
++        assert_consecutive(lines.iter().filter_map(|l| l.left_line), 2);
++        assert_consecutive(lines.iter().filter_map(|l| l.right_line), 2);
++    }
++
++    fn assert_consecutive(numbers: impl Iterator<Item = u32>, first: u32) {
++        for (n, expected) in numbers.zip(first..) {
++            assert_eq!(n, expected, "line numbers must not skip or repeat");
++        }
++    }
++
++    #[test]
++    fn detects_a_rename() {
++        let file = one_file("git_rename");
++        assert_eq!(file.change, FileChange::Renamed);
++        assert_eq!(file.left_path.as_deref(), Some("old_name.rs"));
++        assert_eq!(file.right_path.as_deref(), Some("new_name.rs"));
++        assert_eq!(file.display_path(), "new_name.rs");
++    }
++
++    #[test]
++    fn detects_a_mode_change_with_no_content_change() {
++        let file = one_file("git_mode");
++        assert_eq!(file.left_mode, Some(FileMode::Regular));
++        assert_eq!(file.right_mode, Some(FileMode::Executable));
++        assert!(file.hunks().is_empty(), "a mode change has no hunks");
++    }
++
++    #[test]
++    fn detects_a_binary_file() {
++        let file = one_file("git_binary");
++        assert!(file.is_binary());
++        assert!(
++            file.hunks().is_empty(),
++            "binary files have nothing to render"
++        );
++    }
++
++    #[test]
++    fn detects_an_added_file() {
++        let file = one_file("git_add");
++        assert_eq!(file.change, FileChange::Added);
++        assert_eq!(file.left_path, None);
++        assert_eq!(file.right_path.as_deref(), Some("added.rs"));
++    }
++
++    #[test]
++    fn detects_a_missing_trailing_newline() {
++        let file = one_file("git_nonewline");
++        let lines = &file.hunks()[0].lines;
++
++        // Only the final line on each side lacks a terminator.
++        let flagged: Vec<&str> = lines
++            .iter()
++            .filter(|l| l.no_newline_at_eof)
++            .map(|l| l.text.as_str())
++            .collect();
++        assert_eq!(flagged, vec!["gamma", "delta"]);
++        assert!(lines
++            .iter()
++            .any(|l| l.text == "alpha" && !l.no_newline_at_eof));
++    }
++
++    #[test]
++    fn treats_carriage_returns_as_part_of_the_terminator() {
++        let file = one_file("git_crlf");
++        for line in &file.hunks()[0].lines {
++            assert!(!line.text.contains('\r'), "stray CR in {:?}", line.text);
++        }
++        let added: Vec<&str> = file.hunks()[0]
++            .lines
++            .iter()
++            .filter(|l| l.kind == LineKind::Added)
++            .map(|l| l.text.as_str())
++            .collect();
++        assert_eq!(added, vec!["two modified"]);
++    }
++
++    #[test]
++    fn accepts_plain_unified_diff_without_git_headers() {
++        let set = parse_unified_diff(&fixture("plain_unified")).expect("parse");
++        assert_eq!(set.files.len(), 1);
++        assert!(!set.files[0].hunks().is_empty());
++    }
++
++    #[test]
++    fn reads_a_multi_file_diff() {
++        let set = parse_unified_diff(&fixture("git_full")).expect("parse");
++        let paths: Vec<&str> = set.files.iter().map(|f| f.display_path()).collect();
++        assert!(paths.contains(&"added.rs"), "got {paths:?}");
++        assert!(paths.contains(&"new_name.rs"), "got {paths:?}");
++        assert!(paths.contains(&"src/store.rs"), "got {paths:?}");
++        assert!(
++            set.files.len() >= 6,
++            "got {} files: {paths:?}",
++            set.files.len()
++        );
++    }
++
++    #[test]
++    fn an_empty_document_is_an_empty_diff_not_an_error() {
++        assert!(parse_unified_diff("").expect("parse").is_empty());
++        assert!(parse_unified_diff("   \n\n").expect("parse").is_empty());
++    }
++
++    #[test]
++    fn rejects_text_that_is_not_a_diff() {
++        assert!(parse_unified_diff("just some prose\nover two lines\n").is_err());
++    }
++
++    #[test]
++    fn a_parse_failure_explains_itself_and_keeps_its_source() {
++        let err = parse_unified_diff("just some prose\nover two lines\n").unwrap_err();
++
++        let text = err.to_string();
++        assert!(text.starts_with("malformed unified diff: "), "got {text:?}");
++        assert!(
++            text.len() > "malformed unified diff: ".len(),
++            "no detail in {text:?}"
++        );
++
++        assert!(
++            std::error::Error::source(&err).is_some(),
++            "the underlying parser error should stay reachable"
++        );
++    }
++
++    #[test]
++    fn preserves_trailing_whitespace_in_content() {
++        // Not from a fixture: git strips nothing, but an editor writing the fixture might.
++        let text = "--- a/f.txt\n+++ b/f.txt\n@@ -1 +1 @@\n-old  \n+new\t\n";
++        let set = parse_unified_diff(text).expect("parse");
++        let lines = &set.files[0].hunks()[0].lines;
++        assert_eq!(lines[0].text, "old  ");
++        assert_eq!(lines[1].text, "new\t");
++    }
++}
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_add.diff b/crates/fxv-diff-slint/tests/fixtures/git_add.diff
+new file mode 100644
+index 0000000..d1740ff
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_add.diff
+@@ -0,0 +1,7 @@
++diff --git a/added.rs b/added.rs
++new file mode 100644
++index 0000000..9bd33ab
++--- /dev/null
+++++ b/added.rs
++@@ -0,0 +1 @@
+++fn added() {}
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_binary.diff b/crates/fxv-diff-slint/tests/fixtures/git_binary.diff
+new file mode 100644
+index 0000000..03cbe28
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_binary.diff
+@@ -0,0 +1,3 @@
++diff --git a/image.png b/image.png
++index 9956a96..56cc552 100644
++Binary files a/image.png and b/image.png differ
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_crlf.diff b/crates/fxv-diff-slint/tests/fixtures/git_crlf.diff
+new file mode 100644
+index 0000000..3464026
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_crlf.diff
+@@ -0,0 +1,9 @@
++diff --git a/crlf.txt b/crlf.txt
++index e1587ff..3a7c138 100644
++--- a/crlf.txt
+++++ b/crlf.txt
++@@ -1,3 +1,3 @@
++ one
++-two
+++two modified
++ three
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_full.diff b/crates/fxv-diff-slint/tests/fixtures/git_full.diff
+new file mode 100644
+index 0000000..bfbea42
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_full.diff
+@@ -0,0 +1,65 @@
++diff --git a/added.rs b/added.rs
++new file mode 100644
++index 0000000..9bd33ab
++--- /dev/null
+++++ b/added.rs
++@@ -0,0 +1 @@
+++fn added() {}
++diff --git a/crlf.txt b/crlf.txt
++index e1587ff..3a7c138 100644
++--- a/crlf.txt
+++++ b/crlf.txt
++@@ -1,3 +1,3 @@
++ one
++-two
+++two modified
++ three
++diff --git a/image.png b/image.png
++index 9956a96..56cc552 100644
++Binary files a/image.png and b/image.png differ
++diff --git a/old_name.rs b/new_name.rs
++similarity index 79%
++rename from old_name.rs
++rename to new_name.rs
++index 5bd87e1..4f107d2 100644
++--- a/old_name.rs
+++++ b/new_name.rs
++@@ -1,3 +1,3 @@
++ pub fn helper() -> u32 {
++-    41
+++    42
++ }
++diff --git a/nonewline.txt b/nonewline.txt
++index b9e9ab4..b8836ca 100644
++--- a/nonewline.txt
+++++ b/nonewline.txt
++@@ -1,3 +1,4 @@
++ alpha
++ beta
++-gamma
++\ No newline at end of file
+++gamma
+++delta
++\ No newline at end of file
++diff --git a/script.sh b/script.sh
++old mode 100644
++new mode 100755
++diff --git a/src/store.rs b/src/store.rs
++index a3d6e6e..9dd4448 100644
++--- a/src/store.rs
+++++ b/src/store.rs
++@@ -2,11 +2,11 @@ use std::collections::HashMap;
++ 
++ impl Store {
++     pub fn get(&self, key: &Key) -> Option<&Value> {
++-        self.map.get(key)
+++        self.map.get(key).filter(|v| !v.is_expired())
++     }
++ 
++-    pub fn insert(&mut self, key: Key, value: Value) {
++-        self.map.insert(key, value);
+++    pub fn insert(&mut self, key: Key, value: Value) -> Option<Value> {
+++        self.map.insert(key, value)
++     }
++ 
++     pub fn len(&self) -> usize {
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_mode.diff b/crates/fxv-diff-slint/tests/fixtures/git_mode.diff
+new file mode 100644
+index 0000000..addf924
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_mode.diff
+@@ -0,0 +1,3 @@
++diff --git a/script.sh b/script.sh
++old mode 100644
++new mode 100755
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_modify.diff b/crates/fxv-diff-slint/tests/fixtures/git_modify.diff
+new file mode 100644
+index 0000000..4846837
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_modify.diff
+@@ -0,0 +1,19 @@
++diff --git a/src/store.rs b/src/store.rs
++index a3d6e6e..9dd4448 100644
++--- a/src/store.rs
+++++ b/src/store.rs
++@@ -2,11 +2,11 @@ use std::collections::HashMap;
++ 
++ impl Store {
++     pub fn get(&self, key: &Key) -> Option<&Value> {
++-        self.map.get(key)
+++        self.map.get(key).filter(|v| !v.is_expired())
++     }
++ 
++-    pub fn insert(&mut self, key: Key, value: Value) {
++-        self.map.insert(key, value);
+++    pub fn insert(&mut self, key: Key, value: Value) -> Option<Value> {
+++        self.map.insert(key, value)
++     }
++ 
++     pub fn len(&self) -> usize {
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_nonewline.diff b/crates/fxv-diff-slint/tests/fixtures/git_nonewline.diff
+new file mode 100644
+index 0000000..48cb226
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_nonewline.diff
+@@ -0,0 +1,12 @@
++diff --git a/nonewline.txt b/nonewline.txt
++index b9e9ab4..b8836ca 100644
++--- a/nonewline.txt
+++++ b/nonewline.txt
++@@ -1,3 +1,4 @@
++ alpha
++ beta
++-gamma
++\ No newline at end of file
+++gamma
+++delta
++\ No newline at end of file
+diff --git a/crates/fxv-diff-slint/tests/fixtures/git_rename.diff b/crates/fxv-diff-slint/tests/fixtures/git_rename.diff
+new file mode 100644
+index 0000000..7f39eb2
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/git_rename.diff
+@@ -0,0 +1,12 @@
++diff --git a/old_name.rs b/new_name.rs
++similarity index 79%
++rename from old_name.rs
++rename to new_name.rs
++index 5bd87e1..4f107d2 100644
++--- a/old_name.rs
+++++ b/new_name.rs
++@@ -1,3 +1,3 @@
++ pub fn helper() -> u32 {
++-    41
+++    42
++ }
+diff --git a/crates/fxv-diff-slint/tests/fixtures/plain_unified.diff b/crates/fxv-diff-slint/tests/fixtures/plain_unified.diff
+new file mode 100644
+index 0000000..e50bfb8
+--- /dev/null
++++ b/crates/fxv-diff-slint/tests/fixtures/plain_unified.diff
+@@ -0,0 +1,17 @@
++--- /proc/self/fd/11	2026-08-05 02:19:43.573239103 +0000
+++++ src/store.rs	2026-08-05 02:19:43.546080441 +0000
++@@ -2,11 +2,11 @@
++ 
++ impl Store {
++     pub fn get(&self, key: &Key) -> Option<&Value> {
++-        self.map.get(key)
+++        self.map.get(key).filter(|v| !v.is_expired())
++     }
++ 
++-    pub fn insert(&mut self, key: Key, value: Value) {
++-        self.map.insert(key, value);
+++    pub fn insert(&mut self, key: Key, value: Value) -> Option<Value> {
+++        self.map.insert(key, value)
++     }
++ 
++     pub fn len(&self) -> usize {
+diff --git a/crates/fxv-diff-slint/ui/internal/metrics.slint b/crates/fxv-diff-slint/ui/internal/metrics.slint
+index 2096829..1dd055d 100644
+--- a/crates/fxv-diff-slint/ui/internal/metrics.slint
++++ b/crates/fxv-diff-slint/ui/internal/metrics.slint
+@@ -13,6 +13,17 @@ import { Probes } from "probes.slint";
+ //
+ // The probes also have to be clipped rather than merely moved out of view. At this length the
+ // width probe is a 32000px wide Text, and the renderer panics computing bounds for it.
++//
++// `Text.font-metrics` looks like it makes the height probe redundant, and it nearly does:
++// `ascent - descent` is exact and sub-pixel, and matches this probe to the last decimal for
++// the bundled font. Do not substitute it. Slint's line advance is `ascent - descent + leading`
++// and FontMetrics has no leading, so the two agree only for fonts with a zero line gap. Anyone
++// overriding DiffStyle.font-family with a font that has one would get rows a shade shorter than
++// the text laid out inside them, and nothing would report the mismatch. The probe measures what
++// Slint actually does, whatever the font.
++//
++// There is no equivalent question on the horizontal axis: no public API reports a character
++// advance at all.
+ export component GridMetrics {
+     // Pinning min and preferred to zero keeps the probes' enormous natural size out of the
+     // enclosing layout, which would otherwise open the window 32000px wide.
