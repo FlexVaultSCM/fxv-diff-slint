@@ -3,6 +3,7 @@
 
 import { DiffView } from "internal/diff-view.slint";
 import { DiffStyle } from "internal/style.slint";
+import { PanScrollbar } from "internal/pan-scrollbar.slint";
 import {
     DiffRow,
     DiffRowKind,
@@ -12,5 +13,8 @@ import {
     GapExpandRequest,
 } from "internal/types.slint";
 
+// PanScrollbar is only ever instantiated from .slint, which is just as well: the generated
+// Rust module contains only the last exported component, so DiffView has to come after it.
+export { PanScrollbar as DiffPanScrollbar }
 export { DiffView, DiffStyle }
 export { DiffRow, DiffRowKind, DiffSide, DiffLineRef, DiffLayoutMode, GapExpandRequest }

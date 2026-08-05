@@ -1,5 +1,5 @@
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind } from "types.slint";
+import { DiffRow, DiffRowKind, DiffSide } from "types.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
 //
@@ -15,13 +15,27 @@ export component DiffRowView {
     in property <length> gutter-width;
     in property <length> pan-offset;
     in property <bool> show-line-numbers: true;
+    // Which side's numbers to show. A pane of a side-by-side view shows only its own.
+    in property <DiffSide> number-side: DiffSide.both;
 
     callback clicked();
+
+    // Rows that stand for content have line numbers; the rest do not. A filler has none
+    // either, but it is still a line's worth of one side of the diff.
+    out property <bool> numbered: root.data.kind != DiffRowKind.gap
+        && root.data.kind != DiffRowKind.filler
+        && root.data.kind != DiffRowKind.header;
+
+    // Rows that are about the file rather than a line in it drop the gutter and run the full
+    // width. A filler must not: it stands opposite a real line in the other pane, and losing
+    // its gutter would put the two panes out of step.
+    out property <bool> spans-gutter: root.data.kind == DiffRowKind.gap
+        || root.data.kind == DiffRowKind.header;
 
     HorizontalLayout {
         spacing: 0px;
 
-        if root.show-line-numbers: Rectangle {
+        if root.show-line-numbers && !root.spans-gutter: Rectangle {
             width: root.gutter-width;
             background: DiffStyle.gutter-background;
 
@@ -30,10 +44,12 @@ export component DiffRowView {
                 padding-right: DiffStyle.gutter-padding;
                 spacing: DiffStyle.gutter-padding;
 
-                Text {
+                if root.number-side != DiffSide.right: Text {
                     width: 4 * root.advance;
-                    // Zero means this row has no line on that side.
-                    text: root.data.left-line > 0 ? root.data.left-line : "";
+                    // Zero means this row has no line on that side. Gaps and fillers do carry
+                    // numbers, since expanding a gap has to know where to read from, but they
+                    // are not shown: a number against a gap reads as if the gap were that line.
+                    text: root.numbered && root.data.left-line > 0 ? root.data.left-line : "";
                     horizontal-alignment: right;
                     vertical-alignment: center;
                     font-family: DiffStyle.font-family;
@@ -41,9 +57,9 @@ export component DiffRowView {
                     color: DiffStyle.gutter-text-color;
                 }
 
-                Text {
+                if root.number-side != DiffSide.left: Text {
                     width: 4 * root.advance;
-                    text: root.data.right-line > 0 ? root.data.right-line : "";
+                    text: root.numbered && root.data.right-line > 0 ? root.data.right-line : "";
                     horizontal-alignment: right;
                     vertical-alignment: center;
                     font-family: DiffStyle.font-family;
@@ -70,10 +86,18 @@ export component DiffRowView {
             // the caller's column estimate would be silently truncated. Letting it size
             // itself means a wrong estimate only limits how far the view pans.
             Text {
-                x: -root.pan-offset;
+                // Gaps and headers describe the file rather than sitting in it, so they stay
+                // put when the content is panned sideways.
+                x: root.spans-gutter ? DiffStyle.gutter-padding : -root.pan-offset;
                 y: 0;
                 height: parent.height;
-                text: root.data.text;
+                // A gap has no content of its own, so it says how much it is hiding. Any
+                // text it does carry is the heading of the hunk it precedes, which is the
+                // most useful hint about what has been skipped over.
+                text: root.data.kind == DiffRowKind.gap
+                    ? "  " + root.data.hidden-count + " hidden lines"
+                        + (root.data.text == "" ? "" : "    " + root.data.text)
+                    : root.data.text;
                 font-family: DiffStyle.font-family;
                 font-size: DiffStyle.font-size;
                 letter-spacing: root.letter-spacing;

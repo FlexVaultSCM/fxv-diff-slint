@@ -1,0 +1,25 @@
+diff --git a/wide.rs b/wide.rs
+index 0f98c97..39937e1 100644
+--- a/wide.rs
++++ b/wide.rs
+@@ -8,8 +8,8 @@
+ // filler line 8
+ // filler line 9
+ fn alpha() -> u32 {
+-	let value = compute();
+-	value + 1
++	let value = compute_with_a_considerably_longer_expression(input, options, fallback);
++	value.saturating_add(1)
+ }
+ // filler line 14
+ // filler line 15
+@@ -43,7 +43,8 @@ fn alpha() -> u32 {
+ // filler line 43
+ // filler line 44
+ fn omega(input: &str) -> Result<Vec<Record>, Error> {
+-	parse(input)
++	parse(input).map_err(|e| Error::Parse { source: e, context: input.to_owned() })
++	// added trailing comment
+ }
+ // filler line 48
+ // filler line 49

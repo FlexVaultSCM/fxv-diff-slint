@@ -33,9 +33,14 @@
 
 pub mod model;
 pub mod parse;
+pub mod rows;
+pub mod text;
+pub mod view;
 
 pub use model::{DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind};
 pub use parse::{parse_unified_diff, ParseError};
+pub use rows::{build_inline, build_side_by_side, Row, RowKind, RowOptions, Rows, SideBySideRows};
+pub use view::ViewRows;
 
 pub mod ui {
     //! Types generated from the crate's `.slint` sources.
