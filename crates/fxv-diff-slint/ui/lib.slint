@@ -1,0 +1,16 @@
+// The public surface of this crate. Everything importable from "@FxvDiff" is listed here and
+// nowhere else; everything under internal/ is private.
+
+import { DiffView } from "internal/diff-view.slint";
+import { DiffStyle } from "internal/style.slint";
+import {
+    DiffRow,
+    DiffRowKind,
+    DiffSide,
+    DiffLineRef,
+    DiffLayoutMode,
+    GapExpandRequest,
+} from "internal/types.slint";
+
+export { DiffView, DiffStyle }
+export { DiffRow, DiffRowKind, DiffSide, DiffLineRef, DiffLayoutMode, GapExpandRequest }

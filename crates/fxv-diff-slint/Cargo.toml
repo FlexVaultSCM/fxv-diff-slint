@@ -1,0 +1,26 @@
+[package]
+name = "fxv-diff-slint"
+version = "0.1.0"
+description = "A Slint widget for viewing unified diffs, side by side or inline"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+# Slint resolves the `@FxvDiff` import by reading DEP_FXVDIFF_SLINT_LIBRARY_NAME, which Cargo
+# derives from this key by uppercasing it and mapping `-` to `_`. So this value must equal the
+# name passed to `as_library` in build.rs, must match the `@` import consumers write, and must
+# contain no hyphens.
+links = "FxvDiff"
+
+[dependencies]
+# No backend and no renderer: those are the embedding application's choice. Cargo unions
+# features across the dependency graph, so leaving them off here cannot take anything away
+# from a consumer that enables them.
+slint.workspace = true
+
+[build-dependencies]
+slint-build = { workspace = true, features = ["experimental-module-builds"] }
+
+[dev-dependencies]
+# Does not follow semver, so it must be pinned with `=` to the exact Slint version in use.
+i-slint-backend-testing = "=1.17.1"

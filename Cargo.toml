@@ -1,0 +1,21 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/fxv-diff-slint",
+    "examples/viewer",
+]
+
+[workspace.package]
+edition = "2021"
+license = "MIT"
+repository = "https://github.com/flexvault/fxv-diff-slint"
+
+[workspace.dependencies]
+# No backend, no renderer, no accessibility: choosing those belongs to the application, not to
+# a widget library. Cargo unions features across the dependency graph, so leaving them off
+# here cannot remove anything an application enables.
+#
+# Binaries in this workspace are applications, so they add the renderer features they want in
+# their own manifest.
+slint = { version = "1.17", default-features = false, features = ["compat-1-2", "std"] }
+slint-build = "1.17"

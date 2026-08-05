@@ -1,0 +1,123 @@
+import { ListView } from "std-widgets.slint";
+import { DiffStyle } from "style.slint";
+import { GridMetrics } from "metrics.slint";
+import { DiffRowView } from "row.slint";
+import { DiffRow, DiffRowKind, DiffSide, DiffLineRef, GapExpandRequest } from "types.slint";
+
+// The diff viewer.
+//
+// A single flat list of rows drives it. Inline and side-by-side differ only in how that list
+// was built, not in how it is drawn, so there is one view component rather than two.
+export component DiffView {
+    in property <[DiffRow]> rows;
+    in property <bool> show-line-numbers: true;
+
+    // How many columns the longest line in `rows` occupies. This is a property of the
+    // content, not of the viewport: the scrollable extent is content width minus visible
+    // width, and only the second half is something the layout knows.
+    //
+    // It has to be supplied because it cannot be derived here. Slint has no aggregate over a
+    // model, and iterating would not help: ListView only instantiates visible rows, so a
+    // maximum taken over them would change as the view scrolls. Whatever builds the row list
+    // computes this in the same pass.
+    //
+    // Nothing is clipped if it is wrong. Too small means the end of the longest line cannot
+    // be scrolled to; too large allows panning past the content.
+    in property <int> longest-line-columns: 120;
+
+    callback line-clicked(DiffLineRef);
+    callback gap-expand-requested(GapExpandRequest);
+
+    i-metrics := GridMetrics { }
+
+    out property <length> advance: i-metrics.advance;
+    out property <length> row-height: i-metrics.row-height;
+    out property <length> content-width: root.longest-line-columns * i-metrics.advance;
+
+    // Two line number columns, with padding outside both and between them.
+    out property <length> gutter-width:
+        root.show-line-numbers ? 8 * i-metrics.advance + 3 * DiffStyle.gutter-padding : 0px;
+
+    // Horizontal pan, shared by every row and never negative.
+    in-out property <length> pan-offset: 0px;
+
+    out property <length> max-pan:
+        max(0px, root.content-width - (root.width - root.gutter-width));
+
+    // Derived from the character cell and the content, never from root.width: reading the
+    // view's own width here would make the layout depend on a value the layout produces.
+    preferred-width: root.gutter-width + root.content-width;
+    preferred-height: 25 * root.row-height;
+    min-height: 3 * root.row-height;
+    horizontal-stretch: 1;
+    vertical-stretch: 1;
+
+    public function pan-to(x: length) {
+        root.pan-offset = clamp(x, 0px, root.max-pan);
+    }
+
+    VerticalLayout {
+        i-list := ListView {
+            for r[i] in root.rows: DiffRowView {
+                height: root.row-height;
+                data: r;
+                advance: i-metrics.advance;
+                letter-spacing: i-metrics.letter-spacing;
+                gutter-width: root.gutter-width;
+                pan-offset: root.pan-offset;
+                show-line-numbers: root.show-line-numbers;
+
+                clicked => {
+                    if (r.kind == DiffRowKind.gap) {
+                        root.gap-expand-requested({
+                            side: DiffSide.both,
+                            start-line: r.right-line,
+                            count: r.hidden-count,
+                        });
+                    } else {
+                        root.line-clicked({
+                            side: r.kind == DiffRowKind.removed ? DiffSide.left
+                                : r.kind == DiffRowKind.added ? DiffSide.right
+                                : DiffSide.both,
+                            line: r.kind == DiffRowKind.removed ? r.left-line
+                                : r.right-line,
+                        });
+                    }
+                }
+            }
+        }
+
+        // Hand-built because Slint exposes no public ScrollBar, and ListView will not scroll
+        // horizontally in any case.
+        //
+        // Always present, never conditional on there being something to scroll. Removing the
+        // row when max-pan is zero would make the layout depend on max-pan, which is computed
+        // from the width the layout produces. Only the thumb reacts.
+        Rectangle {
+            height: 10px;
+            background: DiffStyle.gutter-background;
+
+            i-thumb-area := TouchArea {
+                moved => {
+                    if (self.pressed) {
+                        root.pan-to(root.pan-offset + (self.mouse-x - self.pressed-x));
+                    }
+                }
+            }
+
+            Rectangle {
+                visible: root.max-pan > 0px;
+                // Both divisors are zero whenever the content fits, which would put a NaN
+                // into the geometry.
+                x: root.max-pan > 0px
+                    ? (parent.width - self.width) * (root.pan-offset / root.max-pan)
+                    : 0px;
+                width: root.content-width > 0px
+                    ? max(24px, parent.width * (parent.width / root.content-width))
+                    : parent.width;
+                height: parent.height;
+                background: DiffStyle.separator-color;
+            }
+        }
+    }
+}

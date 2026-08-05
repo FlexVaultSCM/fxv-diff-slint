@@ -1,0 +1,85 @@
+import { DiffStyle } from "style.slint";
+import { DiffRow, DiffRowKind } from "types.slint";
+
+// One rendered row: a gutter carrying line numbers, then the line body.
+//
+// The body clips its content and shifts it by a pan offset shared with every other row,
+// rather than being a scroll container of its own. ListView will not scroll horizontally: it
+// computes its own viewport width and discards any value set on it. Panning each row by a
+// common offset moves them in lockstep without nesting scroll containers or giving up
+// ListView's vertical virtualization.
+export component DiffRowView {
+    in property <DiffRow> data;
+    in property <length> advance;
+    in property <length> letter-spacing;
+    in property <length> gutter-width;
+    in property <length> pan-offset;
+    in property <bool> show-line-numbers: true;
+
+    callback clicked();
+
+    HorizontalLayout {
+        spacing: 0px;
+
+        if root.show-line-numbers: Rectangle {
+            width: root.gutter-width;
+            background: DiffStyle.gutter-background;
+
+            HorizontalLayout {
+                padding-left: DiffStyle.gutter-padding;
+                padding-right: DiffStyle.gutter-padding;
+                spacing: DiffStyle.gutter-padding;
+
+                Text {
+                    width: 4 * root.advance;
+                    // Zero means this row has no line on that side.
+                    text: root.data.left-line > 0 ? root.data.left-line : "";
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    font-family: DiffStyle.font-family;
+                    font-size: DiffStyle.font-size;
+                    color: DiffStyle.gutter-text-color;
+                }
+
+                Text {
+                    width: 4 * root.advance;
+                    text: root.data.right-line > 0 ? root.data.right-line : "";
+                    horizontal-alignment: right;
+                    vertical-alignment: center;
+                    font-family: DiffStyle.font-family;
+                    font-size: DiffStyle.font-size;
+                    color: DiffStyle.gutter-text-color;
+                }
+            }
+        }
+
+        Rectangle {
+            clip: true;
+            background: root.data.kind == DiffRowKind.added ? DiffStyle.added-background
+                : root.data.kind == DiffRowKind.removed ? DiffStyle.removed-background
+                : root.data.kind == DiffRowKind.gap ? DiffStyle.gap-background
+                : root.data.kind == DiffRowKind.filler ? DiffStyle.filler-background
+                : DiffStyle.context-background;
+
+            i-touch := TouchArea {
+                clicked => { root.clicked(); }
+            }
+
+            // No explicit width. A Text narrower than its content clips it, and the
+            // clipped remainder cannot be reached by panning either, so a line longer than
+            // the caller's column estimate would be silently truncated. Letting it size
+            // itself means a wrong estimate only limits how far the view pans.
+            Text {
+                x: -root.pan-offset;
+                y: 0;
+                height: parent.height;
+                text: root.data.text;
+                font-family: DiffStyle.font-family;
+                font-size: DiffStyle.font-size;
+                letter-spacing: root.letter-spacing;
+                color: DiffStyle.text-color;
+                vertical-alignment: center;
+            }
+        }
+    }
+}

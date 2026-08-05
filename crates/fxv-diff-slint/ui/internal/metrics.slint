@@ -1,0 +1,66 @@
+import { DiffStyle } from "style.slint";
+import { Probes } from "probes.slint";
+
+// Measures the monospace character cell that every other position in the widget is derived
+// from: one advance wide, one row tall.
+//
+// The probes are thousands of characters long, which looks absurd but is required.
+// `preferred-width` and `preferred-height` are rounded up to a whole pixel, so measuring a
+// single character reports 8px for a font whose advance is 7.83px. That 2.2% error is
+// invisible at column 0 and more than a full character by column 45. Rounding contributes at
+// most one pixel in total no matter how long the string is, so dividing a long probe by its
+// length drives the per-character error to nothing.
+//
+// The probes also have to be clipped rather than merely moved out of view. At this length the
+// width probe is a 32000px wide Text, and the renderer panics computing bounds for it.
+export component GridMetrics {
+    // Pinning min and preferred to zero keeps the probes' enormous natural size out of the
+    // enclosing layout, which would otherwise open the window 32000px wide.
+    //
+    // max-width and max-height must be left alone. A parent that is not a layout takes the
+    // minimum of its children's maximums, so a zero max here silently caps the entire
+    // enclosing view at zero.
+    min-width: 0px;
+    min-height: 0px;
+    preferred-width: 0px;
+    preferred-height: 0px;
+    horizontal-stretch: 0;
+    vertical-stretch: 0;
+
+    // clip applies only to a Rectangle or a Path, so it cannot go on the component root.
+    Rectangle {
+        width: 0px;
+        height: 0px;
+        clip: true;
+
+        i-chars := Text {
+            text: Probes.chars;
+            font-family: DiffStyle.font-family;
+            font-size: DiffStyle.font-size;
+        }
+
+        i-lines := Text {
+            text: Probes.lines;
+            font-family: DiffStyle.font-family;
+            font-size: DiffStyle.font-size;
+        }
+    }
+
+    // What the font actually does, before any snapping.
+    out property <length> raw-advance: i-chars.preferred-width / Probes.char-count;
+    out property <length> raw-line-height: i-lines.preferred-height / Probes.line-count;
+
+    // The cell, snapped to whole pixels on both axes.
+    //
+    // Rounding the row height up is not cosmetic: a row is at least as tall as the Text inside
+    // it, and that Text reports an already-rounded height, so a fractional row height would be
+    // silently grown by the layout and every scroll calculation would disagree with what is
+    // on screen.
+    out property <length> advance: Math.ceil(root.raw-advance / 1px) * 1px;
+    out property <length> row-height:
+        Math.ceil(root.raw-line-height / 1px) * 1px + DiffStyle.row-padding;
+
+    // Applied to rendered lines so each character occupies exactly `advance`, keeping glyphs
+    // on the same grid the highlight rectangles are positioned against however long the line.
+    out property <length> letter-spacing: root.advance - root.raw-advance;
+}

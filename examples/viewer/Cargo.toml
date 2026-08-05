@@ -1,0 +1,33 @@
+[package]
+name = "viewer"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Demonstrates consuming fxv-diff-slint. Note what is absent: no slint-build feature flags, no
+# library paths, no include paths. A consumer adds the dependency and imports "@FxvDiff".
+
+[features]
+# For comparing renderers. Enabling it makes FemtoVG the default, so reaching Skia then needs
+# SLINT_BACKEND=winit-skia.
+femtovg = ["slint/renderer-femtovg"]
+
+[dependencies]
+fxv-diff-slint = { path = "../../crates/fxv-diff-slint" }
+
+# An application, so unlike the library it picks a renderer.
+#
+# Skia by default: it is the most complete of Slint's renderers and measured slightly faster
+# than FemtoVG. FemtoVG is left out rather than added alongside, because the winit backend
+# selects the first available of femtovg, skia, software, so enabling both would silently pick
+# FemtoVG. renderer-software is what the headless backend needs.
+slint = { workspace = true, features = [
+    "accessibility",
+    "backend-winit",
+    "renderer-skia",
+    "renderer-software",
+] }
+
+[build-dependencies]
+slint-build.workspace = true

@@ -1,0 +1,50 @@
+import { Palette } from "std-widgets.slint";
+
+// Embedded rather than looked up from the system so the character advance and line height are
+// identical on every platform. The column grid that positions line numbers, highlights and
+// text all depends on that, so this must not become a system font lookup.
+//
+// The import is unconditional and costs 343 KB. It cannot be put behind a cargo feature: doing
+// so would mean generating this import statement, and a consuming crate re-parses these
+// sources without access to anything generated here. A consumer that would rather use its own
+// font can set DiffStyle.font-family, and then pays for a font it does not use.
+import "../../fonts/DejaVuSansMono.ttf";
+
+// Appearance. Defaults derive from the std-widgets Palette so the widget follows the host
+// application's light or dark theme with no configuration. Every property is `in`, so a host
+// can override any of them from .slint or from Rust.
+export global DiffStyle {
+    // == Font
+    in property <string> font-family: "DejaVu Sans Mono";
+    in property <length> font-size: 13px;
+
+    // == Row backgrounds
+    in property <brush> added-background: Palette.color-scheme == ColorScheme.dark
+        ? #12280f : #e6ffec;
+    in property <brush> removed-background: Palette.color-scheme == ColorScheme.dark
+        ? #2a1010 : #ffebe9;
+    in property <brush> context-background: transparent;
+    in property <brush> gap-background: Palette.color-scheme == ColorScheme.dark
+        ? #16202c : #f0f4f8;
+    in property <brush> filler-background: Palette.color-scheme == ColorScheme.dark
+        ? #1a1a1a : #f6f8fa;
+
+    // == Intra-line highlight, drawn over the row background.
+    // Stronger than the row tint on purpose: the row says "this line changed", these say
+    // "these characters changed".
+    in property <brush> added-word-background: Palette.color-scheme == ColorScheme.dark
+        ? #1f5427 : #abf2bc;
+    in property <brush> removed-word-background: Palette.color-scheme == ColorScheme.dark
+        ? #6b2020 : #ffc9c9;
+
+    // == Foreground
+    in property <brush> text-color: Palette.foreground;
+    in property <brush> gutter-text-color: Palette.foreground.transparentize(0.45);
+    in property <brush> gutter-background: Palette.alternate-background;
+    in property <brush> separator-color: Palette.border;
+
+    // == Geometry
+    in property <length> gutter-padding: 8px;
+    // Extra space above and below the glyph box, per row.
+    in property <length> row-padding: 0px;
+}

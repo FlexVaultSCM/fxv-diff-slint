@@ -1,0 +1,60 @@
+// Types crossing the crate boundary. Everything here is re-exported from lib.slint and
+// becomes a public Rust type in fxv_diff_slint::ui.
+
+// Which side of the diff a line belongs to. Left is the pre-image, right is the post-image.
+export enum DiffSide {
+    left,
+    right,
+    // Context lines exist on both sides.
+    both,
+}
+
+export enum DiffRowKind {
+    // A file header: path, mode change, rename.
+    header,
+    // The @@ line introducing a hunk.
+    hunk-header,
+    // Unchanged, shown for context.
+    context,
+    added,
+    removed,
+    // Lines that exist but are not shown. Clicking expands them.
+    gap,
+    // Placeholder opposite an add or remove in side-by-side, so the two panes stay aligned.
+    filler,
+}
+
+// One rendered row. The view is driven entirely by a flat list of these, so the inline and
+// side-by-side layouts differ only in how the list was built, not in how it is drawn.
+export struct DiffRow {
+    kind: DiffRowKind,
+    // 1-based line numbers. 0 means "no number on this side", which is the case for an
+    // added line's left column, a gap, or a filler.
+    left-line: int,
+    right-line: int,
+    // The line content, already tab-expanded, without the leading +/-/space marker.
+    text: string,
+    // How many lines this gap hides. Only meaningful when kind is gap.
+    hidden-count: int,
+}
+
+// Identifies a line by side and line number rather than by row index, so it stays valid when
+// expanding a gap inserts rows above it.
+export struct DiffLineRef {
+    side: DiffSide,
+    line: int,
+}
+
+// A request for the lines a gap is hiding. The host fetches them however it likes and hands
+// them back; this crate performs no IO.
+export struct GapExpandRequest {
+    side: DiffSide,
+    // 1-based, inclusive.
+    start-line: int,
+    count: int,
+}
+
+export enum DiffLayoutMode {
+    inline,
+    side-by-side,
+}

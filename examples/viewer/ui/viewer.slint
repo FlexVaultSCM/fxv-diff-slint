@@ -1,0 +1,28 @@
+import { DiffView, DiffRow, DiffRowKind, DiffStyle } from "@FxvDiff";
+
+export component MainWindow inherits Window {
+    in property <[DiffRow]> rows;
+    in property <int> longest-line-columns;
+
+    title: "fxv-diff-slint viewer";
+    preferred-width: 1100px;
+    preferred-height: 700px;
+
+    VerticalLayout {
+        DiffView {
+            rows: root.rows;
+            longest-line-columns: root.longest-line-columns;
+
+            line-clicked(ref) => {
+                debug("line clicked", ref.side, ref.line);
+            }
+
+            gap-expand-requested(req) => {
+                debug("gap expand", req.start-line, req.count);
+            }
+        }
+    }
+}
+
+// Re-exported so the example can reach the global from Rust.
+export { DiffStyle }
