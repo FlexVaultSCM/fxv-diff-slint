@@ -13,6 +13,17 @@ import { Probes } from "probes.slint";
 //
 // The probes also have to be clipped rather than merely moved out of view. At this length the
 // width probe is a 32000px wide Text, and the renderer panics computing bounds for it.
+//
+// `Text.font-metrics` looks like it makes the height probe redundant, and it nearly does:
+// `ascent - descent` is exact and sub-pixel, and matches this probe to the last decimal for
+// the bundled font. Do not substitute it. Slint's line advance is `ascent - descent + leading`
+// and FontMetrics has no leading, so the two agree only for fonts with a zero line gap. Anyone
+// overriding DiffStyle.font-family with a font that has one would get rows a shade shorter than
+// the text laid out inside them, and nothing would report the mismatch. The probe measures what
+// Slint actually does, whatever the font.
+//
+// There is no equivalent question on the horizontal axis: no public API reports a character
+// advance at all.
 export component GridMetrics {
     // Pinning min and preferred to zero keeps the probes' enormous natural size out of the
     // enclosing layout, which would otherwise open the window 32000px wide.

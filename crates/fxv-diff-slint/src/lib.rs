@@ -31,6 +31,12 @@
 //! highlights and text on a character grid measured from the font, so a system font lookup
 //! would make that grid vary by platform. Setting [`DiffStyle`]'s `font-family` overrides it.
 
+pub mod model;
+pub mod parse;
+
+pub use model::{DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind};
+pub use parse::{parse_unified_diff, ParseError};
+
 pub mod ui {
     //! Types generated from the crate's `.slint` sources.
     //!

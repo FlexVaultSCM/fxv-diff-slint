@@ -1,0 +1,7 @@
+diff --git a/added.rs b/added.rs
+new file mode 100644
+index 0000000..9bd33ab
+--- /dev/null
++++ b/added.rs
+@@ -0,0 +1 @@
++fn added() {}

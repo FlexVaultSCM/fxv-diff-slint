@@ -1,0 +1,17 @@
+--- /proc/self/fd/11	2026-08-05 02:19:43.573239103 +0000
++++ src/store.rs	2026-08-05 02:19:43.546080441 +0000
+@@ -2,11 +2,11 @@
+ 
+ impl Store {
+     pub fn get(&self, key: &Key) -> Option<&Value> {
+-        self.map.get(key)
++        self.map.get(key).filter(|v| !v.is_expired())
+     }
+ 
+-    pub fn insert(&mut self, key: Key, value: Value) {
+-        self.map.insert(key, value);
++    pub fn insert(&mut self, key: Key, value: Value) -> Option<Value> {
++        self.map.insert(key, value)
+     }
+ 
+     pub fn len(&self) -> usize {

@@ -1,0 +1,19 @@
+diff --git a/src/store.rs b/src/store.rs
+index a3d6e6e..9dd4448 100644
+--- a/src/store.rs
++++ b/src/store.rs
+@@ -2,11 +2,11 @@ use std::collections::HashMap;
+ 
+ impl Store {
+     pub fn get(&self, key: &Key) -> Option<&Value> {
+-        self.map.get(key)
++        self.map.get(key).filter(|v| !v.is_expired())
+     }
+ 
+-    pub fn insert(&mut self, key: Key, value: Value) {
+-        self.map.insert(key, value);
++    pub fn insert(&mut self, key: Key, value: Value) -> Option<Value> {
++        self.map.insert(key, value)
+     }
+ 
+     pub fn len(&self) -> usize {

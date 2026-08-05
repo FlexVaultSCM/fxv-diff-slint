@@ -1,0 +1,12 @@
+diff --git a/old_name.rs b/new_name.rs
+similarity index 79%
+rename from old_name.rs
+rename to new_name.rs
+index 5bd87e1..4f107d2 100644
+--- a/old_name.rs
++++ b/new_name.rs
+@@ -1,3 +1,3 @@
+ pub fn helper() -> u32 {
+-    41
++    42
+ }
