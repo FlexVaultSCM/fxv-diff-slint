@@ -3,13 +3,11 @@ import { DiffRow, DiffRowKind, DiffSide } from "types.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
 //
-// The row declares a minimum width covering the gutter and the widest line. That is what makes
-// the list scroll sideways: a ListView takes its scrollable width from the largest minimum
-// width among its rows, and ignores any width assigned to its viewport.
+// The three children each do one job, and they cannot be folded together:
 //
-// The gutter is positioned against the scroll offset rather than laid out beside the body, so
-// it stays against the left edge while the content slides underneath it. It is drawn after the
-// body so that content passing behind it is covered rather than showing through.
+//   - the spacer declares how far the list can scroll sideways,
+//   - the body paints the row and holds its text,
+//   - the gutter holds the left edge while the body slides behind it.
 export component DiffRowView {
     in property <DiffRow> data;
     in property <length> advance;
@@ -18,12 +16,13 @@ export component DiffRowView {
     in property <length> content-width;
     /// The list's horizontal scroll position. Zero at the left, negative as it moves right.
     in property <length> scroll-x;
+    /// How much of the list is on screen at once.
+    in property <length> visible-width;
     in property <bool> show-line-numbers: true;
     // Which side's numbers to show. A pane of a side-by-side view shows only its own.
     in property <DiffSide> number-side: DiffSide.both;
 
     callback clicked();
-
 
     // Rows that stand for content have line numbers; the rest do not. A filler has none
     // either, but it is still a line's worth of one side of the diff.
@@ -37,12 +36,29 @@ export component DiffRowView {
     out property <bool> spans-gutter: root.data.kind == DiffRowKind.gap
         || root.data.kind == DiffRowKind.header;
 
+    out property <length> full-width: root.gutter-width + root.content-width;
+
+    // Declares how far the list can scroll sideways, and does nothing else.
+    //
+    // A ListView takes its scrollable width from the largest minimum width among its rows, so
+    // this has to be a minimum rather than a width, and it has to be on a child rather than on
+    // the component root, whose constraints never reach the layout information the list reads.
+    // It also cannot be the body below: an element given an explicit `x` drops out of its
+    // parent's layout information, and the body needs one.
     Rectangle {
-        // This minimum is what gives the list something to scroll to. It has to sit on a
-        // child: a minimum set on the component root does not reach the layout information a
-        // ListView measures, so the list would size itself to the window and the longest
-        // lines would simply be unreachable.
-        min-width: root.gutter-width + root.content-width;
+        min-width: root.full-width;
+    }
+
+    Rectangle {
+        // Anchored, because a child wider than its parent is centred by default, which shifts
+        // the whole line left by half the overflow and pushes short ones off the edge.
+        x: 0;
+        // Sized to the whole scrollable width rather than the row's own, which the list sets
+        // to the visible width. A background only as wide as the viewport runs out the moment
+        // the view scrolls sideways, leaving changed lines half-tinted. The visible width is
+        // the floor so a file of only short lines still paints across the pane.
+        width: max(root.visible-width, root.full-width);
+
         background: root.data.kind == DiffRowKind.added ? DiffStyle.added-background
             : root.data.kind == DiffRowKind.removed ? DiffStyle.removed-background
             : root.data.kind == DiffRowKind.gap ? DiffStyle.gap-background
@@ -76,6 +92,7 @@ export component DiffRowView {
         }
     }
 
+    // Drawn last so the body passes behind it rather than showing through.
     if root.show-line-numbers && !root.spans-gutter: Rectangle {
         x: -root.scroll-x;
         width: root.gutter-width;

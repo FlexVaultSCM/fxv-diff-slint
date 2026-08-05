@@ -364,7 +364,7 @@ mod tests {
             text: text.to_owned(),
             left_line: left,
             right_line: right,
-            no_newline_at_eof: false,
+            line_ending: crate::model::LineEnding::Lf,
         }
     }
 

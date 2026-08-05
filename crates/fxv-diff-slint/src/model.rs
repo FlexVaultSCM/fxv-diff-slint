@@ -96,6 +96,19 @@ pub struct Hunk {
     pub lines: Vec<DiffLine>,
 }
 
+/// How a line was terminated in the file it came from.
+///
+/// Kept because a viewer may want to show line endings, and because the two forms are
+/// otherwise indistinguishable once the terminator is stripped for display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEnding {
+    Lf,
+    CrLf,
+    /// No terminator at all. Only the last line of a file can be like this, and diffs mark it
+    /// with `\ No newline at end of file`.
+    None,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LineKind {
     /// Unchanged, present on both sides.
@@ -113,7 +126,13 @@ pub struct DiffLine {
     pub left_line: Option<u32>,
     /// Line number on the right, 1-based. Absent for removed lines.
     pub right_line: Option<u32>,
-    /// The file this line came from does not end with a newline, and this is its last line.
-    /// Diffs render this as a `\ No newline at end of file` marker.
-    pub no_newline_at_eof: bool,
+    /// How the line ended, with the terminator itself already stripped from `text`.
+    pub line_ending: LineEnding,
+}
+
+impl DiffLine {
+    /// Whether the file this line came from ends without a newline, this being its last line.
+    pub fn no_newline_at_eof(&self) -> bool {
+        self.line_ending == LineEnding::None
+    }
 }

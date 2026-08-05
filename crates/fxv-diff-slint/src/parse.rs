@@ -11,7 +11,7 @@ use snafu::{ResultExt, Snafu};
 
 // == Internal Crates
 use crate::model::{
-    DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind,
+    DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineEnding, LineKind,
 };
 
 /// Everything that can go wrong reading a diff.
@@ -129,7 +129,7 @@ fn convert_hunk(hunk: &diffy::Hunk<'_, str>) -> Hunk {
             // Content arrives with its line terminator still attached. A line missing one is
             // how the parser represents `\ No newline at end of file`: rather than flagging
             // it separately, it strips the newline from the line the marker followed.
-            let (text, had_terminator) = strip_terminator(raw);
+            let (text, line_ending) = strip_terminator(raw);
 
             let (left_line, right_line) = match kind {
                 LineKind::Context => {
@@ -155,7 +155,7 @@ fn convert_hunk(hunk: &diffy::Hunk<'_, str>) -> Hunk {
                 text: text.to_owned(),
                 left_line,
                 right_line,
-                no_newline_at_eof: !had_terminator,
+                line_ending,
             }
         })
         .collect();
@@ -172,15 +172,19 @@ fn convert_hunk(hunk: &diffy::Hunk<'_, str>) -> Hunk {
     }
 }
 
-/// Splits off a trailing line terminator, reporting whether there was one.
+/// Splits off a trailing line terminator, reporting which one it was.
 ///
-/// A carriage return is treated as part of the terminator rather than as content. It is a
-/// line-ending artifact, and leaving it in place renders as a stray glyph or a phantom
-/// column of whitespace.
-fn strip_terminator(line: &str) -> (&str, bool) {
+/// A carriage return counts as part of the terminator rather than as content: it is a
+/// line-ending artifact, and leaving it in renders as a stray glyph or a phantom column of
+/// whitespace. Which form it was is kept rather than discarded, so a viewer can show line
+/// endings without having to guess.
+fn strip_terminator(line: &str) -> (&str, LineEnding) {
     match line.strip_suffix('\n') {
-        Some(rest) => (rest.strip_suffix('\r').unwrap_or(rest), true),
-        None => (line, false),
+        Some(rest) => match rest.strip_suffix('\r') {
+            Some(rest) => (rest, LineEnding::CrLf),
+            None => (rest, LineEnding::Lf),
+        },
+        None => (line, LineEnding::None),
     }
 }
 
@@ -329,13 +333,41 @@ mod tests {
         // Only the final line on each side lacks a terminator.
         let flagged: Vec<&str> = lines
             .iter()
-            .filter(|l| l.no_newline_at_eof)
+            .filter(|l| l.no_newline_at_eof())
             .map(|l| l.text.as_str())
             .collect();
         assert_eq!(flagged, vec!["gamma", "delta"]);
         assert!(lines
             .iter()
-            .any(|l| l.text == "alpha" && !l.no_newline_at_eof));
+            .any(|l| l.text == "alpha" && !l.no_newline_at_eof()));
+    }
+
+    #[test]
+    fn records_which_terminator_a_line_had() {
+        // The same content, read from a file written with CRLF and one written with LF.
+        let crlf = one_file("git_crlf");
+        assert!(crlf.hunks()[0]
+            .lines
+            .iter()
+            .all(|l| l.line_ending == LineEnding::CrLf));
+
+        let lf = one_file("git_modify");
+        assert!(lf.hunks()[0]
+            .lines
+            .iter()
+            .all(|l| l.line_ending == LineEnding::Lf));
+
+        // A file with no final newline reports that on its last line only.
+        let none = one_file("git_nonewline");
+        let endings: Vec<LineEnding> = none.hunks()[0]
+            .lines
+            .iter()
+            .map(|l| l.line_ending)
+            .collect();
+        assert_eq!(
+            endings.iter().filter(|e| **e == LineEnding::None).count(),
+            2
+        );
     }
 
     #[test]
