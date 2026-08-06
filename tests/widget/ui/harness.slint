@@ -1,0 +1,84 @@
+import { DiffView, DiffRow } from "@FxvDiff";
+
+// Windows of a known size around the view, so tests can reason about the viewport.
+//
+// Both import from "@FxvDiff" rather than by path on purpose: this is the route a consuming
+// application takes, so anything that only breaks across that boundary breaks here.
+
+// One view, for anything about the grid or a single pane's geometry.
+export component Harness inherits Window {
+    in property <[DiffRow]> rows;
+    in property <int> longest-line-columns: 120;
+    in property <bool> gap-expandable: false;
+
+    in-out property <length> scroll-x <=> i-view.scroll-x;
+    in-out property <length> scroll-y <=> i-view.scroll-y;
+
+    out property <length> advance <=> i-view.advance;
+    out property <length> row-height <=> i-view.row-height;
+    out property <length> gutter-width <=> i-view.gutter-width;
+    out property <length> content-width <=> i-view.content-width;
+    out property <length> scrollable-width <=> i-view.scrollable-width;
+    out property <length> visible-width <=> i-view.visible-width;
+    out property <length> max-scroll-y <=> i-view.max-scroll-y;
+
+    // The last gap request raised, so a test can assert what a click asked for. Negative
+    // until something asks.
+    out property <int> asked-left: -1;
+    out property <int> asked-right: -1;
+    out property <int> asked-count: -1;
+
+    width: 800px;
+    height: 400px;
+
+    VerticalLayout {
+        i-view := DiffView {
+            rows: root.rows;
+            longest-line-columns: root.longest-line-columns;
+            gap-expandable: root.gap-expandable;
+
+            gap-expand-requested(request) => {
+                root.asked-left = request.left-start;
+                root.asked-right = request.right-start;
+                root.asked-count = request.count;
+            }
+        }
+    }
+}
+
+// Two views driven from one scroll position, as a side-by-side layout does.
+//
+// This is not the same situation as the single view above, and the difference decides whether
+// the view has to correct its own scroll position. A list normally pulls its position back
+// into range itself, but both places that do so skip it when the position has a binding
+// (`repeater.rs` and `flickable.rs` both test `has_binding`). One view aliasing a plain
+// property does not create one. A second view sharing that property does, so only here does
+// the list stop correcting itself and the view's own clamp start carrying the behaviour.
+export component PairedHarness inherits Window {
+    in property <[DiffRow]> rows;
+    in property <int> longest-line-columns: 120;
+
+    in-out property <length> scroll-y: 0px;
+
+    out property <length> row-height <=> i-left.row-height;
+    out property <length> max-scroll-y <=> i-left.max-scroll-y;
+
+    width: 800px;
+    height: 400px;
+
+    HorizontalLayout {
+        i-left := DiffView {
+            rows: root.rows;
+            longest-line-columns: root.longest-line-columns;
+            scroll-y <=> root.scroll-y;
+            preferred-width: 0px;
+        }
+
+        i-right := DiffView {
+            rows: root.rows;
+            longest-line-columns: root.longest-line-columns;
+            scroll-y <=> root.scroll-y;
+            preferred-width: 0px;
+        }
+    }
+}

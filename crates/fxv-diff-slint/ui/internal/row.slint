@@ -75,7 +75,7 @@ export component DiffRowView {
         min-width: root.full-width;
     }
 
-    Rectangle {
+    i-body := Rectangle {
         // Anchored, because a child wider than its parent is centred by default, which shifts
         // the whole line left by half the overflow and pushes short ones off the edge.
         x: 0;
@@ -98,7 +98,7 @@ export component DiffRowView {
         }
 
         // A gap describes itself alongside its controls instead, further down.
-        if root.data.kind != DiffRowKind.gap: Text {
+        if root.data.kind != DiffRowKind.gap: i-content := Text {
             // Content sits to the right of the gutter and scrolls with the list. A header
             // describes the file rather than sitting in it, so it is pinned against the
             // visible left edge instead.
@@ -203,7 +203,7 @@ export component DiffRowView {
     }
 
     // Drawn last so the body passes behind it rather than showing through.
-    if root.show-line-numbers && !root.spans-gutter: Rectangle {
+    if root.show-line-numbers && !root.spans-gutter: i-gutter := Rectangle {
         x: -root.scroll-x;
         width: root.gutter-width;
         background: DiffStyle.gutter-background;

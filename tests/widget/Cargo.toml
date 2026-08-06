@@ -1,0 +1,28 @@
+[package]
+name = "fxv-diff-slint-tests"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish = false
+
+# Widget-level tests, in their own crate rather than inside the library.
+#
+# Two reasons. The library's own sources are compiled with `as_library`, and a second compile
+# of a test harness alongside that would generate a duplicate set of types. And a consumer
+# re-parses the library's .slint rather than reusing its compiled form, so some breakages
+# appear only on this side of the boundary: a component dropping out of the generated Rust
+# module, or an enum being generated twice. Building from here is what catches those.
+
+[lints]
+workspace = true
+
+[dependencies]
+fxv-diff-slint = { path = "../../crates/fxv-diff-slint" }
+slint = { workspace = true }
+# A dependency rather than a dev-dependency because the shared harness helpers in src/ use it,
+# and dev-dependencies do not reach there. Pinned exactly: it tracks Slint's internal API and
+# does not follow semver.
+i-slint-backend-testing = "=1.17.1"
+
+[build-dependencies]
+slint-build.workspace = true

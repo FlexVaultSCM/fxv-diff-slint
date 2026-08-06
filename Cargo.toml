@@ -3,6 +3,7 @@ resolver = "2"
 members = [
     "crates/fxv-diff-slint",
     "examples/viewer",
+    "tests/widget",
 ]
 
 [workspace.package]
