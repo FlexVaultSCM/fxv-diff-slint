@@ -8,6 +8,9 @@
 // == Std
 use std::ops::Range;
 
+// == External Crates
+use slint::SharedString;
+
 // == Internal Crates
 use crate::model::{DiffLine, FileDiff, Hunk, LineKind, LineRef};
 use crate::text::{display_width, render_line, RenderOptions};
@@ -35,7 +38,11 @@ pub struct Row {
     /// Line number in the right file. Absent for removed lines and fillers.
     pub right_line: Option<u32>,
     /// Display text, tabs already expanded. Empty for fillers.
-    pub text: String,
+    ///
+    /// Shared rather than owned outright. A side-by-side view puts the same context line in
+    /// both panes, and every row is handed to the widget as well, so an owned string would be
+    /// copied three times over for text that never changes after it is built.
+    pub text: SharedString,
     /// How many lines a gap row is hiding. Zero for every other kind.
     pub hidden_count: u32,
     /// Columns the text occupies.
@@ -55,7 +62,7 @@ impl Row {
             kind: RowKind::Filler,
             left_line: None,
             right_line: None,
-            text: String::new(),
+            text: SharedString::new(),
             hidden_count: 0,
             columns: 0,
             source: None,
@@ -192,6 +199,8 @@ fn pair_hunk(
     for block in change_blocks(&hunk.lines) {
         match block {
             Block::Context(i) => {
+                // The same line goes in both panes. Cloning shares the text rather than
+                // copying it, which matters because context is most of a diff.
                 let row = content_row(hunk_index, i, &hunk.lines, opts);
                 left.push(row.clone());
                 right.push(row);
@@ -274,7 +283,7 @@ fn content_row(hunk: usize, index: usize, hunk_lines: &[DiffLine], opts: &RowOpt
         },
         left_line: line.left_line,
         right_line: line.right_line,
-        text,
+        text: text.as_str().into(),
         hidden_count: 0,
         columns: columns as u32,
         source: Some(LineRef {
@@ -303,7 +312,7 @@ fn header_row(file: &FileDiff) -> Row {
         left_line: None,
         right_line: None,
         columns: display_width(file.display_path()) as u32,
-        text: file.display_path().to_owned(),
+        text: file.display_path().into(),
         hidden_count: 0,
         source: None,
     }
@@ -346,7 +355,7 @@ impl GapWalker {
             left_line: (left_hidden > 0).then_some(self.left_next),
             right_line: (right_hidden > 0).then_some(self.right_next),
             columns: hunk.heading.as_deref().map_or(0, display_width) as u32,
-            text: hunk.heading.clone().unwrap_or_default(),
+            text: hunk.heading.as_deref().unwrap_or_default().into(),
             hidden_count: hidden,
             source: None,
         });
@@ -375,7 +384,7 @@ impl GapWalker {
             kind: RowKind::Gap,
             left_line: (left_hidden > 0).then_some(self.left_next),
             right_line: (right_hidden > 0).then_some(self.right_next),
-            text: String::new(),
+            text: SharedString::new(),
             hidden_count: hidden,
             columns: 0,
             source: None,

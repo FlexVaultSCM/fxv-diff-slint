@@ -4,6 +4,9 @@
 //! on the side it does not exist on. The Slint struct cannot: the language has no optional
 //! type, so absence is encoded as zero, which is safe because line numbers are 1-based.
 //! This module is where that translation happens, and the only place that knows about it.
+//!
+//! The text needs no translation: rows already hold it in the form the widget takes, so
+//! handing a row over shares its text rather than copying it.
 
 // == Std crates
 use std::rc::Rc;
@@ -39,7 +42,7 @@ fn to_slint_row(row: &Row) -> ui::DiffRow {
         // with a real one.
         left_line: row.left_line.unwrap_or(0) as i32,
         right_line: row.right_line.unwrap_or(0) as i32,
-        text: row.text.as_str().into(),
+        text: row.text.clone(),
         hidden_count: row.hidden_count as i32,
     }
 }
@@ -66,7 +69,7 @@ mod tests {
             left_line: left,
             right_line: right,
             columns: text.chars().count() as u32,
-            text: text.to_owned(),
+            text: text.into(),
             hidden_count: 0,
             source: None,
         }
