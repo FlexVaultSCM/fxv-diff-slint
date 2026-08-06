@@ -13,6 +13,9 @@ publish = false
 # SLINT_BACKEND=winit-skia.
 femtovg = ["slint/renderer-femtovg"]
 
+[lints]
+workspace = true
+
 [dependencies]
 fxv-diff-slint = { path = "../../crates/fxv-diff-slint" }
 

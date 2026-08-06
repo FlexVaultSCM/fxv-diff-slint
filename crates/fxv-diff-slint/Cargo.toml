@@ -12,6 +12,9 @@ repository.workspace = true
 # contain no hyphens.
 links = "FxvDiff"
 
+[lints]
+workspace = true
+
 [dependencies]
 # Handles the format's awkward corners: git extended headers, binary markers, and the
 # `\ No newline at end of file` convention.

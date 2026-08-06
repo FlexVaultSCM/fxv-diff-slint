@@ -1,45 +1,230 @@
-//! Turning file content into text laid out on a fixed character grid.
+//! Turning a line of a file into the text a view draws, and back again.
+//!
+//! These are two different coordinate systems and conflating them is the bug this module
+//! exists to prevent. A tab occupies one character in the file and up to eight columns on
+//! screen; with whitespace made visible it also draws as something other than itself. So:
+//!
+//!   - **display text** is for drawing, and nothing else,
+//!   - **copying** always resolves back to the source characters,
+//!   - **spans** computed over source text are mapped before they are drawn.
+//!
+//! Everything here walks the line the same way, through [`layout`], so the drawing and the
+//! mapping cannot disagree about where a character sits.
+
+// == Std
+use std::{iter, ops::Range, str::Chars};
 
 // == External Crates
 use unicode_width::UnicodeWidthChar;
 
+// == Internal Crates
+use crate::model::LineEnding;
+
 /// How many columns a tab advances to.
 pub const DEFAULT_TAB_WIDTH: usize = 4;
 
-/// Expands tabs and measures the result, in grid columns.
-///
-/// Tabs advance to the next multiple of `tab_width` rather than inserting a fixed number of
-/// spaces, which is what every editor does and what makes aligned code stay aligned.
-///
-/// The width of everything else comes from the Unicode East Asian Width tables, so a CJK
-/// glyph counts as the two columns a monospace font gives it. That is not exact for
-/// everything: emoji, combining marks and regional indicators can render wider or narrower
-/// than their table entry suggests, and there is no way to ask the font. Lines containing
-/// them will be a column or two out.
-pub fn expand_tabs(line: &str, tab_width: usize) -> (String, usize) {
-    // A tab width of zero would make tab stops meaningless and loop forever below.
-    let tab_width = tab_width.max(1);
+// Glyphs for whitespace made visible.
+//
+// All four are checked to exist in the bundled font at exactly one character advance. The
+// Control Pictures block (U+240A, U+240D) would be the obvious choice for the line endings and
+// is deliberately not used: it is absent from the font, and a missing glyph falls back to
+// another face with a different advance, which breaks the column grid. Re-check these if the
+// font is ever changed.
+const TAB_MARK: char = '\u{2192}'; // rightwards arrow
+const SPACE_MARK: char = '\u{00b7}'; // middle dot
+const CR_MARK: char = '\u{21b5}'; // return symbol
+const LF_MARK: char = '\u{00b6}'; // pilcrow
 
-    let mut out = String::with_capacity(line.len());
-    let mut column = 0;
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RenderOptions {
+    pub tab_width: usize,
+    /// Draw spaces as dots and tabs as arrows.
+    pub show_space_tabs: bool,
+    /// Draw a marker for the line terminator. Separate from `show_space_tabs` because wanting
+    /// one without the other is the common case.
+    pub show_line_endings: bool,
+}
 
-    for ch in line.chars() {
-        if ch == '\t' {
-            let stop = (column / tab_width + 1) * tab_width;
-            out.extend(std::iter::repeat_n(' ', stop - column));
-            column = stop;
-        } else {
-            out.push(ch);
-            // Control characters have no defined width; treat them as occupying nothing
-            // rather than guessing, since they are not drawn either.
-            column += ch.width().unwrap_or(0);
+impl Default for RenderOptions {
+    fn default() -> Self {
+        RenderOptions {
+            tab_width: DEFAULT_TAB_WIDTH,
+            show_space_tabs: false,
+            show_line_endings: false,
+        }
+    }
+}
+
+/// Where one source character lands on the display grid.
+///
+/// Private because it is an implementation detail of the walk below: callers ask for a column
+/// or an index, not for the placement each answer came from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct CharCell {
+    /// Index of the character in the source line, counted in characters.
+    source_index: usize,
+    /// First display column the character occupies.
+    column: usize,
+    /// How many columns it occupies. A tab varies; a wide glyph is two; most are one.
+    width: usize,
+}
+
+/// Walks a line, reporting where each character lands and which character it was.
+///
+/// Lazy on purpose. Everything here is built on this one walk so that drawing and mapping
+/// cannot disagree about where a character sits, but the callers want a single answer each,
+/// and rendering runs once per row of the file. Collecting the placements would allocate a
+/// line's worth of them every time to read one number back.
+struct CharCells<'a> {
+    chars: Chars<'a>,
+    show_space_tabs: bool,
+    tab_width: usize,
+    index: usize,
+    column: usize,
+}
+
+impl Iterator for CharCells<'_> {
+    type Item = (CharCell, char);
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ch = self.chars.next()?;
+
+        let width = match ch {
+            // Tabs advance to the next stop rather than inserting a fixed count, which is
+            // what keeps aligned code aligned.
+            '\t' => (self.column / self.tab_width + 1) * self.tab_width - self.column,
+            ' ' if self.show_space_tabs => 1,
+            // Control characters have no defined width. Treat them as occupying nothing,
+            // since they are not drawn either.
+            _ => ch.width().unwrap_or(0),
+        };
+
+        let cell = CharCell {
+            source_index: self.index,
+            column: self.column,
+            width,
+        };
+        self.index += 1;
+        self.column += width;
+        Some((cell, ch))
+    }
+}
+
+fn char_cells<'a>(source: &'a str, opts: &RenderOptions) -> CharCells<'a> {
+    CharCells {
+        chars: source.chars(),
+        show_space_tabs: opts.show_space_tabs,
+        // A tab width of zero would make tab stops meaningless and loop forever.
+        tab_width: opts.tab_width.max(1),
+        index: 0,
+        column: 0,
+    }
+}
+
+/// Appends what a character draws as, given how many columns it was allotted.
+fn push_rendered(out: &mut String, ch: char, width: usize, opts: &RenderOptions) {
+    match ch {
+        '\t' if opts.show_space_tabs => {
+            out.push(TAB_MARK);
+            // The arrow takes the first of the tab's columns; the rest is padding.
+            out.extend(iter::repeat_n(' ', width - 1));
+        }
+        '\t' => out.extend(iter::repeat_n(' ', width)),
+        ' ' if opts.show_space_tabs => out.push(SPACE_MARK),
+        _ => out.push(ch),
+    }
+}
+
+/// Renders a line for display, and reports how many columns it occupies.
+pub fn render_line(source: &str, ending: LineEnding, opts: &RenderOptions) -> (String, usize) {
+    let mut text = String::with_capacity(source.len());
+    let mut columns = 0;
+
+    for (cell, ch) in char_cells(source, opts) {
+        push_rendered(&mut text, ch, cell.width, opts);
+        columns = cell.column + cell.width;
+    }
+
+    if opts.show_line_endings {
+        for mark in ending_marks(ending) {
+            text.push(*mark);
+            columns += 1;
         }
     }
 
-    (out, column)
+    (text, columns)
 }
 
-/// Measures text that has already had its tabs expanded.
+/// The display column a source character starts at.
+///
+/// An index past the end of the line reports the column just after it, which is where a caret
+/// sits when it is at the end.
+pub fn display_column_of(source: &str, char_index: usize, opts: &RenderOptions) -> usize {
+    let mut past_the_end = 0;
+
+    for (cell, _) in char_cells(source, opts) {
+        if cell.source_index == char_index {
+            return cell.column;
+        }
+        past_the_end = cell.column + cell.width;
+    }
+
+    past_the_end
+}
+
+/// The source character shown at a display column.
+///
+/// A column landing inside a character that occupies several, such as a tab's run or a wide
+/// glyph, resolves to that character. A column past the end resolves to the end of the line,
+/// so a click in empty space to the right selects up to the last character rather than
+/// nothing.
+pub fn source_index_at(source: &str, column: usize, opts: &RenderOptions) -> usize {
+    let mut past_the_end = 0;
+
+    for (cell, _) in char_cells(source, opts) {
+        if column < cell.column + cell.width {
+            return cell.source_index;
+        }
+        past_the_end = cell.source_index + 1;
+    }
+
+    past_the_end
+}
+
+/// Maps a range of source characters to the display columns that draw them.
+///
+/// This is what a highlight rectangle is positioned from: word-level diff and syntax
+/// highlighting both produce spans over the file's text, which is not what is on screen.
+pub fn map_span(source: &str, chars: Range<usize>, opts: &RenderOptions) -> Range<usize> {
+    let mut start = None;
+    let mut end = None;
+    let mut past_the_end = 0;
+
+    // Both ends in one walk, since they come from the same line.
+    for (cell, _) in char_cells(source, opts) {
+        if cell.source_index == chars.start {
+            start = Some(cell.column);
+        }
+        if cell.source_index == chars.end {
+            end = Some(cell.column);
+        }
+        past_the_end = cell.column + cell.width;
+    }
+
+    let start = start.unwrap_or(past_the_end);
+    let end = end.unwrap_or(past_the_end);
+    start..end.max(start)
+}
+
+fn ending_marks(ending: LineEnding) -> &'static [char] {
+    match ending {
+        LineEnding::Lf => &[LF_MARK],
+        LineEnding::CrLf => &[CR_MARK, LF_MARK],
+        LineEnding::None => &[],
+    }
+}
+
+/// Measures text that has already been rendered.
 pub fn display_width(text: &str) -> usize {
     text.chars().map(|c| c.width().unwrap_or(0)).sum()
 }
@@ -48,63 +233,225 @@ pub fn display_width(text: &str) -> usize {
 mod tests {
     use super::*;
 
+    fn plain() -> RenderOptions {
+        RenderOptions::default()
+    }
+
+    fn visible() -> RenderOptions {
+        RenderOptions {
+            show_space_tabs: true,
+            ..Default::default()
+        }
+    }
+
+    fn render(source: &str, opts: &RenderOptions) -> (String, usize) {
+        render_line(source, LineEnding::Lf, opts)
+    }
+
+    // == Tab expansion
+
     #[test]
     fn a_tab_advances_to_the_next_stop_not_a_fixed_distance() {
-        // From column 0 a tab fills the whole stop; from column 2 it fills only the rest.
-        assert_eq!(expand_tabs("\tx", 4), ("    x".to_owned(), 5));
-        assert_eq!(expand_tabs("ab\tx", 4), ("ab  x".to_owned(), 5));
-        assert_eq!(expand_tabs("abc\tx", 4), ("abc x".to_owned(), 5));
+        assert_eq!(render("\tx", &plain()), ("    x".to_owned(), 5));
+        assert_eq!(render("ab\tx", &plain()), ("ab  x".to_owned(), 5));
+        assert_eq!(render("abc\tx", &plain()), ("abc x".to_owned(), 5));
         // A tab landing exactly on a stop still advances a full stop.
-        assert_eq!(expand_tabs("abcd\tx", 4), ("abcd    x".to_owned(), 9));
+        assert_eq!(render("abcd\tx", &plain()), ("abcd    x".to_owned(), 9));
     }
 
     #[test]
     fn consecutive_tabs_each_advance_one_stop() {
-        assert_eq!(expand_tabs("\t\tx", 4), ("        x".to_owned(), 9));
+        assert_eq!(render("\t\tx", &plain()), ("        x".to_owned(), 9));
     }
 
     #[test]
     fn tab_width_is_configurable() {
-        assert_eq!(expand_tabs("\tx", 8), ("        x".to_owned(), 9));
-        assert_eq!(expand_tabs("ab\tx", 2), ("ab  x".to_owned(), 5));
+        let wide = RenderOptions {
+            tab_width: 8,
+            ..Default::default()
+        };
+        assert_eq!(render("\tx", &wide), ("        x".to_owned(), 9));
     }
 
     #[test]
     fn a_zero_tab_width_does_not_hang() {
-        assert_eq!(expand_tabs("\tx", 0), (" x".to_owned(), 2));
+        let zero = RenderOptions {
+            tab_width: 0,
+            ..Default::default()
+        };
+        assert_eq!(render("\tx", &zero), (" x".to_owned(), 2));
     }
 
     #[test]
     fn wide_glyphs_count_as_two_columns() {
-        // The tab stop has to account for the double-width characters before it.
-        let (text, width) = expand_tabs("\u{4f60}\u{597d}", 4);
-        assert_eq!(width, 4, "two CJK glyphs occupy four columns");
+        let (text, columns) = render("\u{4f60}\u{597d}", &plain());
+        assert_eq!(columns, 4, "two CJK glyphs occupy four columns");
         assert_eq!(text, "\u{4f60}\u{597d}");
 
-        let (_, width) = expand_tabs("\u{4f60}\t x", 4);
-        assert_eq!(
-            width, 6,
-            "the tab advances from column 2 to 4, then two more"
-        );
+        // The tab has to account for them: from column 2 it advances to 4.
+        let (_, columns) = render("\u{4f60}\t x", &plain());
+        assert_eq!(columns, 6);
     }
 
     #[test]
-    fn plain_text_is_unchanged_and_measured_by_character_count() {
-        let (text, width) = expand_tabs("fn main() {}", 4);
-        assert_eq!(text, "fn main() {}");
-        assert_eq!(width, 12);
-        assert_eq!(display_width("fn main() {}"), 12);
-    }
-
-    #[test]
-    fn trailing_whitespace_survives_expansion() {
-        let (text, width) = expand_tabs("x  ", 4);
-        assert_eq!(text, "x  ");
-        assert_eq!(width, 3);
+    fn trailing_whitespace_survives() {
+        assert_eq!(render("x  ", &plain()), ("x  ".to_owned(), 3));
     }
 
     #[test]
     fn an_empty_line_is_zero_columns() {
-        assert_eq!(expand_tabs("", 4), (String::new(), 0));
+        assert_eq!(render("", &plain()), (String::new(), 0));
+    }
+
+    // == Whitespace made visible
+
+    #[test]
+    fn spaces_and_tabs_can_be_shown_without_changing_the_grid() {
+        let (plain_text, plain_columns) = render("a b\tc", &plain());
+        let (marked_text, marked_columns) = render("a b\tc", &visible());
+
+        assert_eq!(plain_text, "a b c");
+        assert_eq!(marked_text, "a\u{00b7}b\u{2192}c");
+        assert_eq!(
+            plain_columns, marked_columns,
+            "showing whitespace must not move anything"
+        );
+    }
+
+    #[test]
+    fn a_shown_tab_is_an_arrow_followed_by_its_padding() {
+        // From column 0 with width 4: arrow plus three spaces.
+        assert_eq!(render("\tx", &visible()), ("\u{2192}   x".to_owned(), 5));
+        // From column 2 the tab is only two columns wide: arrow plus one space.
+        assert_eq!(render("ab\tx", &visible()), ("ab\u{2192} x".to_owned(), 5));
+    }
+
+    #[test]
+    fn line_endings_are_shown_independently_of_spaces_and_tabs() {
+        let endings = RenderOptions {
+            show_line_endings: true,
+            ..Default::default()
+        };
+        // Spaces stay plain even though the ending is marked.
+        assert_eq!(
+            render_line("a b", LineEnding::Lf, &endings),
+            ("a b\u{00b6}".to_owned(), 4)
+        );
+        assert_eq!(
+            render_line("a b", LineEnding::CrLf, &endings),
+            ("a b\u{21b5}\u{00b6}".to_owned(), 5)
+        );
+        // A file with no final newline has nothing to mark.
+        assert_eq!(
+            render_line("a b", LineEnding::None, &endings),
+            ("a b".to_owned(), 3)
+        );
+    }
+
+    #[test]
+    fn line_endings_are_not_shown_by_default() {
+        assert_eq!(
+            render_line("a b", LineEnding::CrLf, &plain()),
+            ("a b".to_owned(), 3)
+        );
+    }
+
+    // == Mapping between source and display
+
+    #[test]
+    fn a_source_character_maps_to_the_column_that_draws_it() {
+        // "a" then a tab to column 4, then "b".
+        let source = "a\tb";
+        assert_eq!(display_column_of(source, 0, &plain()), 0);
+        assert_eq!(
+            display_column_of(source, 1, &plain()),
+            1,
+            "the tab starts at 1"
+        );
+        assert_eq!(
+            display_column_of(source, 2, &plain()),
+            4,
+            "b lands on the stop"
+        );
+        // Past the end is the column a caret would sit at.
+        assert_eq!(display_column_of(source, 3, &plain()), 5);
+    }
+
+    #[test]
+    fn a_column_inside_a_tab_resolves_to_the_tab() {
+        // The tab occupies columns 1 to 3.
+        let source = "a\tb";
+        assert_eq!(source_index_at(source, 0, &plain()), 0);
+        assert_eq!(source_index_at(source, 1, &plain()), 1);
+        assert_eq!(source_index_at(source, 2, &plain()), 1);
+        assert_eq!(source_index_at(source, 3, &plain()), 1);
+        assert_eq!(source_index_at(source, 4, &plain()), 2);
+    }
+
+    #[test]
+    fn a_column_inside_a_wide_glyph_resolves_to_that_glyph() {
+        let source = "\u{4f60}x";
+        assert_eq!(source_index_at(source, 0, &plain()), 0);
+        assert_eq!(source_index_at(source, 1, &plain()), 0, "second half");
+        assert_eq!(source_index_at(source, 2, &plain()), 1);
+    }
+
+    #[test]
+    fn a_column_past_the_end_resolves_to_the_end_of_the_line() {
+        assert_eq!(source_index_at("abc", 99, &plain()), 3);
+        assert_eq!(source_index_at("", 5, &plain()), 0);
+    }
+
+    #[test]
+    fn the_mapping_round_trips_for_every_character() {
+        let source = "a\tbc\t\u{4f60}d  e";
+        for opts in [plain(), visible()] {
+            for (index, _) in source.chars().enumerate() {
+                let column = display_column_of(source, index, &opts);
+                assert_eq!(
+                    source_index_at(source, column, &opts),
+                    index,
+                    "character {index} of {source:?} did not survive the round trip"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_span_over_source_text_maps_to_the_columns_that_draw_it() {
+        // "ab" then a tab to column 4, then "cd". Selecting the tab and "c" covers
+        // columns 2 to 5.
+        let source = "ab\tcd";
+        assert_eq!(map_span(source, 2..4, &plain()), 2..5);
+        // A span over plain characters is unchanged.
+        assert_eq!(map_span(source, 0..2, &plain()), 0..2);
+        // An empty span stays empty.
+        assert_eq!(map_span(source, 1..1, &plain()), 1..1);
+    }
+
+    #[test]
+    fn showing_whitespace_does_not_move_the_mapping() {
+        let source = "a b\tc";
+        for index in 0..source.chars().count() {
+            assert_eq!(
+                display_column_of(source, index, &plain()),
+                display_column_of(source, index, &visible()),
+                "character {index} moved when whitespace was shown"
+            );
+        }
+    }
+
+    #[test]
+    fn rendered_text_measures_as_many_columns_as_the_layout_reported() {
+        for source in ["", "plain", "a\tb", "\u{4f60}\u{597d}x", "  trailing  "] {
+            for opts in [plain(), visible()] {
+                let (text, columns) = render(source, &opts);
+                assert_eq!(
+                    display_width(&text),
+                    columns,
+                    "{source:?} disagreed about its own width"
+                );
+            }
+        }
     }
 }

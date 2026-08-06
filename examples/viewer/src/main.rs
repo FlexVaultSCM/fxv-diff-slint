@@ -6,13 +6,19 @@ use std::rc::Rc;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    build_inline, build_side_by_side, parse_unified_diff, DiffSet, FileDiff, RowOptions, ViewRows,
+    build_inline, build_side_by_side, parse_unified_diff, DiffSet, FileDiff, RenderOptions,
+    RowOptions, ViewRows,
 };
 
 // == External Crates
 use slint::{ModelRc, SharedString, VecModel};
 
-slint::include_modules!();
+// Machine-generated; see the note on the library's `ui` module.
+#[allow(clippy::absolute_paths)]
+mod ui {
+    slint::include_modules!();
+}
+use ui::*;
 
 /// Diffs to browse, most taken from this repository's own history so they contain real code
 /// rather than something contrived.
@@ -78,6 +84,16 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    {
+        let window = window.as_weak();
+        let diff = diff.clone();
+        window.unwrap().on_whitespace_changed(move || {
+            let w = window.unwrap();
+            let index = w.get_current_file().max(0) as usize;
+            show_file(&w, &diff.borrow(), index);
+        });
+    }
+
     let first = from_file
         .as_ref()
         .map_or(SAMPLES[0].1, |(_, text)| text.as_str());
@@ -120,7 +136,16 @@ fn show_file(window: &MainWindow, diff: &DiffSet, index: usize) {
     }
     window.set_status(SharedString::new());
 
-    let opts = RowOptions::default();
+    // Rebuilt rather than restyled: making whitespace visible changes the text itself, so the
+    // rows have to be rendered again.
+    let opts = RowOptions {
+        render: RenderOptions {
+            show_space_tabs: window.get_whitespace_mode() >= 1,
+            show_line_endings: window.get_whitespace_mode() >= 2,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
     let inline = ViewRows::from(&build_inline(file, &opts));
     let split = build_side_by_side(file, &opts);
     // One column count for both panes; see SideBySideRows::longest_line_columns.

@@ -40,8 +40,12 @@ pub mod view;
 pub use model::{DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind};
 pub use parse::{parse_unified_diff, ParseError};
 pub use rows::{build_inline, build_side_by_side, Row, RowKind, RowOptions, Rows, SideBySideRows};
+pub use text::{display_column_of, map_span, render_line, source_index_at, RenderOptions};
 pub use view::ViewRows;
 
+// Machine-generated, and it names everything through full paths. That is correct for
+// generated code and not something to lint.
+#[allow(clippy::absolute_paths)]
 pub mod ui {
     //! Types generated from the crate's `.slint` sources.
     //!

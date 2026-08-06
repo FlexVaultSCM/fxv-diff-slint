@@ -67,6 +67,7 @@ mod tests {
             right_line: right,
             text: text.to_owned(),
             hidden_count: 0,
+            source: None,
         }
     }
 

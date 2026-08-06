@@ -21,8 +21,12 @@ export component MainWindow inherits Window {
 
     in-out property <bool> side-by-side: false;
 
+    // 0 shows nothing, 1 shows spaces and tabs, 2 adds line endings.
+    in-out property <int> whitespace-mode: 0;
+
     callback sample-changed(int);
     callback file-changed(int);
+    callback whitespace-changed();
 
     // Ties the two panes together: both views bind to these, so moving either moves both.
     in-out property <length> shared-scroll-y: 0px;
@@ -74,6 +78,17 @@ export component MainWindow inherits Window {
 
                 Rectangle {
                     horizontal-stretch: 1;
+                }
+
+                Button {
+                    text: root.whitespace-mode == 0 ? "Whitespace: off"
+                        : root.whitespace-mode == 1 ? "Whitespace: spaces, tabs"
+                        : "Whitespace: and endings";
+                    clicked => {
+                        root.whitespace-mode = Math.mod(root.whitespace-mode + 1, 3);
+                        root.whitespace-changed();
+                        i-keys.focus();
+                    }
                 }
 
                 Button {

@@ -5,8 +5,14 @@
 //! is added here is an owned model with per-line numbers resolved, which a viewer needs and
 //! a patch applier does not.
 
+// == Std
+use std::error;
+
 // == External Crates
-use diffy::patch_set::{FileOperation, ParseOptions, PatchKind, PatchSet, PatchSetParseError};
+use diffy::patch_set::{
+    FileMode as DiffyFileMode, FileOperation, FilePatch, ParseOptions, PatchKind, PatchSet,
+    PatchSetParseError,
+};
 use snafu::{ResultExt, Snafu};
 
 // == Internal Crates
@@ -24,7 +30,7 @@ pub enum ParseError {
     #[snafu(display("malformed unified diff: {source}"))]
     Malformed {
         #[snafu(source(from(PatchSetParseError, Into::into)))]
-        source: Box<dyn std::error::Error + Send + Sync>,
+        source: Box<dyn error::Error + Send + Sync>,
     },
 }
 
@@ -59,7 +65,7 @@ fn collect(text: &str, opts: ParseOptions) -> Result<Vec<FileDiff>, ParseError> 
         .collect()
 }
 
-fn convert_file(patch: &diffy::patch_set::FilePatch<'_, str>) -> FileDiff {
+fn convert_file(patch: &FilePatch<'_, str>) -> FileDiff {
     let (left_path, right_path, change) = match patch.operation() {
         FileOperation::Create(p) => (None, Some(clean_path(p)), FileChange::Added),
         FileOperation::Delete(p) => (Some(clean_path(p)), None, FileChange::Removed),
@@ -97,13 +103,12 @@ fn convert_file(patch: &diffy::patch_set::FilePatch<'_, str>) -> FileDiff {
     }
 }
 
-fn convert_mode(mode: &diffy::patch_set::FileMode) -> FileMode {
-    use diffy::patch_set::FileMode as Src;
+fn convert_mode(mode: &DiffyFileMode) -> FileMode {
     match mode {
-        Src::Regular => FileMode::Regular,
-        Src::Executable => FileMode::Executable,
-        Src::Symlink => FileMode::Symlink,
-        Src::Gitlink => FileMode::Gitlink,
+        DiffyFileMode::Regular => FileMode::Regular,
+        DiffyFileMode::Executable => FileMode::Executable,
+        DiffyFileMode::Symlink => FileMode::Symlink,
+        DiffyFileMode::Gitlink => FileMode::Gitlink,
     }
 }
 
@@ -201,6 +206,9 @@ fn clean_path(path: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    // == Std
+    use std::fs;
+
     use super::*;
 
     /// Fixtures are real `git diff` and `diff -u` output, generated from an actual
@@ -208,7 +216,7 @@ mod tests {
     /// hunks, which the parser correctly rejects and which then looks like a parser bug.
     fn fixture(name: &str) -> String {
         let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/");
-        std::fs::read_to_string(format!("{path}{name}.diff"))
+        fs::read_to_string(format!("{path}{name}.diff"))
             .unwrap_or_else(|e| panic!("reading fixture {name}: {e}"))
     }
 
@@ -429,7 +437,7 @@ mod tests {
         );
 
         assert!(
-            std::error::Error::source(&err).is_some(),
+            error::Error::source(&err).is_some(),
             "the underlying parser error should stay reachable"
         );
     }

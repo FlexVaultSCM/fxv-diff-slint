@@ -1,0 +1,3 @@
+# Two segments is the boundary the code style draws: `iter::repeat_n` and `path::Path` read
+# fine, `std::iter::repeat_n` does not. Anything longer should be imported instead.
+absolute-paths-max-segments = 2

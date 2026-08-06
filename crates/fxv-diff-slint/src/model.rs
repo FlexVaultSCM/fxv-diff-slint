@@ -78,6 +78,14 @@ impl FileDiff {
     pub fn is_binary(&self) -> bool {
         matches!(self.content, FileContent::Binary)
     }
+
+    /// The line a row came from, for reading its original text.
+    pub fn line(&self, at: LineRef) -> Option<&DiffLine> {
+        self.hunks()
+            .get(at.hunk as usize)?
+            .lines
+            .get(at.line as usize)
+    }
 }
 
 /// A contiguous run of changed lines plus the context around it.
@@ -94,6 +102,18 @@ pub struct Hunk {
     /// The text trailing the `@@` markers. Git puts the enclosing function signature here.
     pub heading: Option<String>,
     pub lines: Vec<DiffLine>,
+}
+
+/// Points at one line of a parsed diff.
+///
+/// A row keeps one of these rather than a second copy of the text, so that copying can resolve
+/// back to what the file actually contains. The row's own text has been rendered for display:
+/// tabs expanded, and whitespace possibly drawn as something other than itself.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LineRef {
+    pub hunk: u32,
+    /// Index within the hunk's lines, not a line number in the file.
+    pub line: u32,
 }
 
 /// How a line was terminated in the file it came from.

@@ -5,9 +5,12 @@
 //! parts (aligning two sides, working out what is hidden between hunks) are worth testing
 //! without a window in the way.
 
+// == Std
+use std::ops::Range;
+
 // == Internal Crates
-use crate::model::{DiffLine, FileDiff, Hunk, LineKind};
-use crate::text::{expand_tabs, DEFAULT_TAB_WIDTH};
+use crate::model::{DiffLine, FileDiff, Hunk, LineKind, LineRef};
+use crate::text::{display_width, render_line, RenderOptions};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
@@ -35,6 +38,9 @@ pub struct Row {
     pub text: String,
     /// How many lines a gap row is hiding. Zero for every other kind.
     pub hidden_count: u32,
+    /// The line this row was rendered from, for anything that needs the original text rather
+    /// than what is drawn. Absent for gaps, headers and fillers, which stand for no line.
+    pub source: Option<LineRef>,
 }
 
 impl Row {
@@ -45,13 +51,15 @@ impl Row {
             right_line: None,
             text: String::new(),
             hidden_count: 0,
+            source: None,
         }
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RowOptions {
-    pub tab_width: usize,
+    /// How each line is turned into the text a view draws.
+    pub render: RenderOptions,
     /// Prepend a row naming the file.
     pub include_file_header: bool,
     /// Total lines in the left file. Without it there is no way to know whether anything
@@ -59,17 +67,6 @@ pub struct RowOptions {
     pub left_total_lines: Option<u32>,
     /// Total lines in the right file. See `left_total_lines`.
     pub right_total_lines: Option<u32>,
-}
-
-impl Default for RowOptions {
-    fn default() -> Self {
-        RowOptions {
-            tab_width: DEFAULT_TAB_WIDTH,
-            include_file_header: false,
-            left_total_lines: None,
-            right_total_lines: None,
-        }
-    }
 }
 
 /// Rows plus the measurement a view needs to size its horizontal scroll.
@@ -84,7 +81,7 @@ impl Rows {
     fn from_rows(rows: Vec<Row>) -> Self {
         let longest_line_columns = rows
             .iter()
-            .map(|r| crate::text::display_width(&r.text) as u32)
+            .map(|r| display_width(&r.text) as u32)
             .max()
             .unwrap_or(0);
         Rows {
@@ -126,16 +123,16 @@ pub fn build_inline(file: &FileDiff, opts: &RowOptions) -> Rows {
     }
 
     let mut walker = GapWalker::new(opts);
-    for hunk in file.hunks() {
+    for (h, hunk) in file.hunks().iter().enumerate() {
         if let Some(gap) = walker.gap_before(hunk) {
             rows.push(gap);
         }
         for block in change_blocks(&hunk.lines) {
             match block {
-                Block::Context(line) => rows.push(content_row(line, opts)),
+                Block::Context(i) => rows.push(content_row(h, i, &hunk.lines, opts)),
                 Block::Change { removed, added } => {
-                    rows.extend(removed.iter().map(|line| content_row(line, opts)));
-                    rows.extend(added.iter().map(|line| content_row(line, opts)));
+                    rows.extend(removed.map(|i| content_row(h, i, &hunk.lines, opts)));
+                    rows.extend(added.map(|i| content_row(h, i, &hunk.lines, opts)));
                 }
             }
         }
@@ -158,12 +155,12 @@ pub fn build_side_by_side(file: &FileDiff, opts: &RowOptions) -> SideBySideRows 
     }
 
     let mut walker = GapWalker::new(opts);
-    for hunk in file.hunks() {
+    for (h, hunk) in file.hunks().iter().enumerate() {
         if let Some(gap) = walker.gap_before(hunk) {
             left.push(gap.clone());
             right.push(gap);
         }
-        pair_hunk(hunk, opts, &mut left, &mut right);
+        pair_hunk(h, hunk, opts, &mut left, &mut right);
     }
     if let Some(gap) = walker.trailing_gap() {
         left.push(gap.clone());
@@ -182,18 +179,26 @@ pub fn build_side_by_side(file: &FileDiff, opts: &RowOptions) -> SideBySideRows 
 ///
 /// The two runs of a change are placed opposite each other and the shorter is padded, which is
 /// what keeps a three-line removal facing the five-line addition that replaced it.
-fn pair_hunk(hunk: &Hunk, opts: &RowOptions, left: &mut Vec<Row>, right: &mut Vec<Row>) {
+fn pair_hunk(
+    hunk_index: usize,
+    hunk: &Hunk,
+    opts: &RowOptions,
+    left: &mut Vec<Row>,
+    right: &mut Vec<Row>,
+) {
     for block in change_blocks(&hunk.lines) {
         match block {
-            Block::Context(line) => {
-                let row = content_row(line, opts);
+            Block::Context(i) => {
+                let row = content_row(hunk_index, i, &hunk.lines, opts);
                 left.push(row.clone());
                 right.push(row);
             }
             Block::Change { removed, added } => {
                 for slot in 0..removed.len().max(added.len()) {
-                    left.push(row_or_filler(removed.get(slot), opts));
-                    right.push(row_or_filler(added.get(slot), opts));
+                    let l = removed.start.checked_add(slot).filter(|i| *i < removed.end);
+                    let r = added.start.checked_add(slot).filter(|i| *i < added.end);
+                    left.push(row_or_filler(hunk_index, l, &hunk.lines, opts));
+                    right.push(row_or_filler(hunk_index, r, &hunk.lines, opts));
                 }
             }
         }
@@ -206,23 +211,25 @@ fn pair_hunk(hunk: &Hunk, opts: &RowOptions, left: &mut Vec<Row>, right: &mut Ve
 /// the two runs one after the other, side by side puts them opposite each other. Word-level
 /// highlighting will want the same grouping, since it has to pair a removed line with the
 /// added line that replaced it.
-enum Block<'a> {
-    Context(&'a DiffLine),
+enum Block {
+    Context(usize),
     /// Lines taken out, and the lines put in their place. Either may be empty: a pure
     /// insertion has no removals and a pure deletion has no additions.
+    ///
+    /// Held as index ranges rather than slices so a row can record which line it came from.
     Change {
-        removed: &'a [DiffLine],
-        added: &'a [DiffLine],
+        removed: Range<usize>,
+        added: Range<usize>,
     },
 }
 
-fn change_blocks(lines: &[DiffLine]) -> Vec<Block<'_>> {
+fn change_blocks(lines: &[DiffLine]) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut i = 0;
 
     while i < lines.len() {
         if lines[i].kind == LineKind::Context {
-            blocks.push(Block::Context(&lines[i]));
+            blocks.push(Block::Context(i));
             i += 1;
             continue;
         }
@@ -233,7 +240,7 @@ fn change_blocks(lines: &[DiffLine]) -> Vec<Block<'_>> {
         while i < lines.len() && lines[i].kind == LineKind::Removed {
             i += 1;
         }
-        let removed = &lines[removed_start..i];
+        let removed = removed_start..i;
 
         let added_start = i;
         while i < lines.len() && lines[i].kind == LineKind::Added {
@@ -242,7 +249,7 @@ fn change_blocks(lines: &[DiffLine]) -> Vec<Block<'_>> {
 
         blocks.push(Block::Change {
             removed,
-            added: &lines[added_start..i],
+            added: added_start..i,
         });
     }
 
@@ -253,8 +260,9 @@ fn change_blocks(lines: &[DiffLine]) -> Vec<Block<'_>> {
 ///
 /// The line numbers come across unchanged rather than being cleared per side: a removed line
 /// already has no right-hand number and an added line has no left-hand one.
-fn content_row(line: &DiffLine, opts: &RowOptions) -> Row {
-    let (text, _) = expand_tabs(&line.text, opts.tab_width);
+fn content_row(hunk: usize, index: usize, hunk_lines: &[DiffLine], opts: &RowOptions) -> Row {
+    let line = &hunk_lines[index];
+    let (text, _) = render_line(&line.text, line.line_ending, &opts.render);
     Row {
         kind: match line.kind {
             LineKind::Context => RowKind::Context,
@@ -265,12 +273,24 @@ fn content_row(line: &DiffLine, opts: &RowOptions) -> Row {
         right_line: line.right_line,
         text,
         hidden_count: 0,
+        source: Some(LineRef {
+            hunk: hunk as u32,
+            line: index as u32,
+        }),
     }
 }
 
-/// A row for the line, or blank space where that side of a change has run out.
-fn row_or_filler(line: Option<&DiffLine>, opts: &RowOptions) -> Row {
-    line.map_or_else(Row::filler, |line| content_row(line, opts))
+/// A row for the line at that index, or blank space where that side of a change has run out.
+fn row_or_filler(
+    hunk: usize,
+    index: Option<usize>,
+    hunk_lines: &[DiffLine],
+    opts: &RowOptions,
+) -> Row {
+    match index {
+        Some(index) => content_row(hunk, index, hunk_lines, opts),
+        None => Row::filler(),
+    }
 }
 
 fn header_row(file: &FileDiff) -> Row {
@@ -280,6 +300,7 @@ fn header_row(file: &FileDiff) -> Row {
         right_line: None,
         text: file.display_path().to_owned(),
         hidden_count: 0,
+        source: None,
     }
 }
 
@@ -321,6 +342,7 @@ impl GapWalker {
             right_line: (right_hidden > 0).then_some(self.right_next),
             text: hunk.heading.clone().unwrap_or_default(),
             hidden_count: hidden,
+            source: None,
         });
 
         self.left_next = (hunk.left_start + hunk.left_len).max(1);
@@ -349,6 +371,7 @@ impl GapWalker {
             right_line: (right_hidden > 0).then_some(self.right_next),
             text: String::new(),
             hidden_count: hidden,
+            source: None,
         })
     }
 }
@@ -356,7 +379,7 @@ impl GapWalker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{DiffLine, FileChange, FileContent};
+    use crate::model::{DiffLine, FileChange, FileContent, LineEnding};
 
     fn line(kind: LineKind, left: Option<u32>, right: Option<u32>, text: &str) -> DiffLine {
         DiffLine {
@@ -364,7 +387,7 @@ mod tests {
             text: text.to_owned(),
             left_line: left,
             right_line: right,
-            line_ending: crate::model::LineEnding::Lf,
+            line_ending: LineEnding::Lf,
         }
     }
 
@@ -712,6 +735,82 @@ mod tests {
     // == Text handling
 
     #[test]
+    fn a_row_can_find_the_line_it_was_rendered_from() {
+        let f = file(vec![change_hunk(1, &["\tremoved"], &["\tadded"])]);
+        let rows = build_inline(&f, &RowOptions::default());
+
+        for row in &rows.rows {
+            let Some(at) = row.source else {
+                continue;
+            };
+            let line = f.line(at).expect("source line should resolve");
+
+            // The row carries display text; the line carries what the file holds. For a
+            // tab-indented line those differ, which is the whole reason the reference exists.
+            assert_eq!(row.left_line, line.left_line);
+            assert_eq!(row.right_line, line.right_line);
+            if line.text.contains('\t') {
+                assert_ne!(row.text, line.text, "display text should not be the source");
+                assert!(line.text.starts_with('\t'), "the source keeps its tab");
+                assert!(row.text.starts_with("    "), "the row shows it expanded");
+            }
+        }
+    }
+
+    #[test]
+    fn rows_that_stand_for_no_line_have_no_source() {
+        let f = file(vec![change_hunk(10, &["a", "b"], &[])]);
+        let opts = RowOptions {
+            include_file_header: true,
+            ..Default::default()
+        };
+
+        for row in &build_inline(&f, &opts).rows {
+            match row.kind {
+                RowKind::Header | RowKind::Gap | RowKind::Filler => {
+                    assert_eq!(row.source, None, "{:?} should have no source", row.kind)
+                }
+                _ => assert!(row.source.is_some(), "{:?} should have a source", row.kind),
+            }
+        }
+
+        // The same holds for the fillers a one-sided change puts in the other pane.
+        let split = build_side_by_side(&f, &opts);
+        for row in &split.right.rows {
+            if row.kind == RowKind::Filler {
+                assert_eq!(row.source, None);
+            }
+        }
+    }
+
+    #[test]
+    fn side_by_side_rows_point_at_the_same_lines_as_inline_ones() {
+        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
+        let opts = RowOptions::default();
+
+        let inline: Vec<_> = build_inline(&f, &opts)
+            .rows
+            .iter()
+            .filter_map(|r| r.source)
+            .collect();
+        let split = build_side_by_side(&f, &opts);
+        let mut both: Vec<_> = split
+            .left
+            .rows
+            .iter()
+            .chain(split.right.rows.iter())
+            .filter_map(|r| r.source)
+            .collect();
+        both.sort_by_key(|r| (r.hunk, r.line));
+        both.dedup();
+
+        let mut expected = inline;
+        expected.sort_by_key(|r| (r.hunk, r.line));
+        expected.dedup();
+        assert_eq!(both, expected);
+    }
+
+    #[test]
     fn tabs_are_expanded_in_row_text() {
         let f = file(vec![change_hunk(1, &["\tindented"], &["\t\tdeeper"])]);
         let rows = build_inline(&f, &RowOptions::default());
@@ -725,7 +824,10 @@ mod tests {
         let rows = build_inline(
             &f,
             &RowOptions {
-                tab_width: 8,
+                render: RenderOptions {
+                    tab_width: 8,
+                    ..Default::default()
+                },
                 ..Default::default()
             },
         );
