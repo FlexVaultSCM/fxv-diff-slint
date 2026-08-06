@@ -46,7 +46,7 @@ impl From<&Row> for ui::DiffRow {
             text: row.text.clone(),
             hidden_count: row.hidden_count as i32,
             gap_state: row.gap_state.into(),
-    }
+        }
     }
 }
 

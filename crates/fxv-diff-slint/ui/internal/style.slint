@@ -43,8 +43,27 @@ export global DiffStyle {
     in property <brush> gutter-background: Palette.alternate-background;
     in property <brush> separator-color: Palette.border;
 
+    // == Gap controls
+    //
+    // Shipped with the crate and overridable, like every other property here. They are images
+    // rather than font glyphs because a glyph resolves through font fallback, and a character
+    // whose advance differs from the embedded font's would put the column grid out.
+    //
+    // Down opens the top of a gap, against the hunk above it, and up opens the bottom. That
+    // names the direction the newly shown lines travel, not the end they are taken from.
+    //
+    // Each control draws its icon beside a line count, so an icon set to a blank image leaves
+    // a bare number with nothing to say what it does.
+    in property <image> gap-expand-down-icon: @image-url("../icons/expand-down.svg");
+    in property <image> gap-expand-up-icon: @image-url("../icons/expand-up.svg");
+    in property <image> gap-expand-all-icon: @image-url("../icons/expand-all.svg");
+    in property <image> gap-retry-icon: @image-url("../icons/retry.svg");
+
     // == Geometry
     in property <length> gutter-padding: 8px;
     // Extra space above and below the glyph box, per row.
     in property <length> row-padding: 0px;
+    // The square an icon is drawn in, letterboxed to fit. Follows the text size so a control
+    // stays inside its row.
+    in property <length> gap-icon-size: font-size;
 }

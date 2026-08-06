@@ -1,8 +1,13 @@
 import { DiffStyle } from "style.slint";
 
-// A control on a gap row. Deliberately plain: gap styling is not settled, and this is the
-// smallest thing that makes opening one testable.
+// A control on a gap row: an icon saying what it does, and a count saying how much.
+//
+// Sizes itself from its content rather than being given a width, so a row of these can be laid
+// out without anyone counting characters. That matters because the count beside the icon may
+// be one digit or four.
 export component GapButton {
+    in property <image> icon;
+    // Normally a line count.
     in property <string> label;
     callback clicked();
 
@@ -17,13 +22,29 @@ export component GapButton {
             }
         }
 
-        Text {
-            text: root.label;
-            horizontal-alignment: center;
-            vertical-alignment: center;
-            font-family: DiffStyle.font-family;
-            font-size: DiffStyle.font-size;
-            color: DiffStyle.gutter-text-color;
+        HorizontalLayout {
+            padding-left: DiffStyle.gutter-padding;
+            padding-right: DiffStyle.gutter-padding;
+            spacing: DiffStyle.gutter-padding / 2;
+            alignment: center;
+
+            Image {
+                source: root.icon;
+                width: DiffStyle.gap-icon-size;
+                height: self.width;
+                // Letterboxed, so an icon of any aspect ratio leaves the control the same size.
+                image-fit: contain;
+                colorize: DiffStyle.gutter-text-color;
+            }
+
+            Text {
+                text: root.label;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+                font-family: DiffStyle.font-family;
+                font-size: DiffStyle.font-size;
+                color: DiffStyle.gutter-text-color;
+            }
         }
     }
 }

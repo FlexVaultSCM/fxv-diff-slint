@@ -15,7 +15,11 @@ use fxv_diff_slint::{
 use slint::{ModelRc, SharedString, Timer, VecModel};
 
 // Machine-generated; see the note on the library's `ui` module.
-#[allow(clippy::absolute_paths)]
+//
+// dead_code because a consumer re-parses the library's .slint sources and re-embeds the images
+// they reference, while the globals holding them come from the library crate. The duplicates
+// are never read, and nothing here can stop them being emitted.
+#[allow(clippy::absolute_paths, dead_code)]
 mod ui {
     slint::include_modules!();
 }
