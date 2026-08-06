@@ -84,14 +84,22 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
-    {
+    // Whitespace and layout both change what has to be built, so both go back through
+    // show_file rather than restyling what is already there.
+    for install in [
+        MainWindow::on_whitespace_changed as fn(&MainWindow, _),
+        MainWindow::on_layout_changed as fn(&MainWindow, _),
+    ] {
         let window = window.as_weak();
         let diff = diff.clone();
-        window.unwrap().on_whitespace_changed(move || {
-            let w = window.unwrap();
-            let index = w.get_current_file().max(0) as usize;
-            show_file(&w, &diff.borrow(), index);
-        });
+        install(
+            &window.unwrap(),
+            Box::new(move || {
+                let w = window.unwrap();
+                let index = w.get_current_file().max(0) as usize;
+                show_file(&w, &diff.borrow(), index);
+            }),
+        );
     }
 
     let first = from_file
@@ -136,6 +144,11 @@ fn show_file(window: &MainWindow, diff: &DiffSet, index: usize) {
     }
     window.set_status(SharedString::new());
 
+    // A different file is a different document, so it starts at the top rather than wherever
+    // the last one was left.
+    window.set_shared_scroll_y(0.0);
+    window.set_shared_scroll_x(0.0);
+
     // Rebuilt rather than restyled: making whitespace visible changes the text itself, so the
     // rows have to be rendered again.
     let opts = RowOptions {
@@ -146,16 +159,19 @@ fn show_file(window: &MainWindow, diff: &DiffSet, index: usize) {
         },
         ..Default::default()
     };
-    let inline = ViewRows::from(&build_inline(file, &opts));
-    let split = build_side_by_side(file, &opts);
-    // One column count for both panes; see SideBySideRows::longest_line_columns.
-    let split_columns = split.longest_line_columns() as i32;
-
-    window.set_inline_columns(inline.longest_line_columns);
-    window.set_inline_rows(inline.rows);
-    window.set_split_columns(split_columns);
-    window.set_left_rows(ViewRows::from(&split.left).rows);
-    window.set_right_rows(ViewRows::from(&split.right).rows);
+    // Only the layout on screen is built. Building both would mean rendering the whole diff
+    // three times over on every file change and every toggle, for two row sets nobody sees.
+    if window.get_side_by_side() {
+        let split = build_side_by_side(file, &opts);
+        // One column count for both panes; see SideBySideRows::longest_line_columns.
+        window.set_split_columns(split.longest_line_columns() as i32);
+        window.set_left_rows(ViewRows::from(&split.left).rows);
+        window.set_right_rows(ViewRows::from(&split.right).rows);
+    } else {
+        let inline = ViewRows::from(&build_inline(file, &opts));
+        window.set_inline_columns(inline.longest_line_columns);
+        window.set_inline_rows(inline.rows);
+    }
 }
 
 /// A label for the file picker, noting anything that happened beyond an edit.

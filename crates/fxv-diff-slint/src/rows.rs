@@ -38,6 +38,12 @@ pub struct Row {
     pub text: String,
     /// How many lines a gap row is hiding. Zero for every other kind.
     pub hidden_count: u32,
+    /// Columns the text occupies.
+    ///
+    /// Recorded when the row is built because rendering has just walked the line and knows
+    /// the answer. Measuring the finished rows instead would mean a second pass over every
+    /// character in the diff to recover a number that was already in hand.
+    pub columns: u32,
     /// The line this row was rendered from, for anything that needs the original text rather
     /// than what is drawn. Absent for gaps, headers and fillers, which stand for no line.
     pub source: Option<LineRef>,
@@ -51,6 +57,7 @@ impl Row {
             right_line: None,
             text: String::new(),
             hidden_count: 0,
+            columns: 0,
             source: None,
         }
     }
@@ -79,11 +86,7 @@ pub struct Rows {
 
 impl Rows {
     fn from_rows(rows: Vec<Row>) -> Self {
-        let longest_line_columns = rows
-            .iter()
-            .map(|r| display_width(&r.text) as u32)
-            .max()
-            .unwrap_or(0);
+        let longest_line_columns = rows.iter().map(|r| r.columns).max().unwrap_or(0);
         Rows {
             rows,
             longest_line_columns,
@@ -262,7 +265,7 @@ fn change_blocks(lines: &[DiffLine]) -> Vec<Block> {
 /// already has no right-hand number and an added line has no left-hand one.
 fn content_row(hunk: usize, index: usize, hunk_lines: &[DiffLine], opts: &RowOptions) -> Row {
     let line = &hunk_lines[index];
-    let (text, _) = render_line(&line.text, line.line_ending, &opts.render);
+    let (text, columns) = render_line(&line.text, line.line_ending, &opts.render);
     Row {
         kind: match line.kind {
             LineKind::Context => RowKind::Context,
@@ -273,6 +276,7 @@ fn content_row(hunk: usize, index: usize, hunk_lines: &[DiffLine], opts: &RowOpt
         right_line: line.right_line,
         text,
         hidden_count: 0,
+        columns: columns as u32,
         source: Some(LineRef {
             hunk: hunk as u32,
             line: index as u32,
@@ -298,6 +302,7 @@ fn header_row(file: &FileDiff) -> Row {
         kind: RowKind::Header,
         left_line: None,
         right_line: None,
+        columns: display_width(file.display_path()) as u32,
         text: file.display_path().to_owned(),
         hidden_count: 0,
         source: None,
@@ -340,6 +345,7 @@ impl GapWalker {
             // Where the hidden run starts, so a host asked to expand it knows what to fetch.
             left_line: (left_hidden > 0).then_some(self.left_next),
             right_line: (right_hidden > 0).then_some(self.right_next),
+            columns: hunk.heading.as_deref().map_or(0, display_width) as u32,
             text: hunk.heading.clone().unwrap_or_default(),
             hidden_count: hidden,
             source: None,
@@ -371,6 +377,7 @@ impl GapWalker {
             right_line: (right_hidden > 0).then_some(self.right_next),
             text: String::new(),
             hidden_count: hidden,
+            columns: 0,
             source: None,
         })
     }

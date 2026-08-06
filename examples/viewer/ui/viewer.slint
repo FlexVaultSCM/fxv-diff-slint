@@ -27,6 +27,8 @@ export component MainWindow inherits Window {
     callback sample-changed(int);
     callback file-changed(int);
     callback whitespace-changed();
+    // Rows are built for whichever layout is on screen, so switching needs a rebuild.
+    callback layout-changed();
 
     // Ties the two panes together: both views bind to these, so moving either moves both.
     in-out property <length> shared-scroll-y: 0px;
@@ -41,6 +43,7 @@ export component MainWindow inherits Window {
         key-pressed(event) => {
             if (event.text == "b" && (event.modifiers.control || event.modifiers.meta)) {
                 root.side-by-side = !root.side-by-side;
+                root.layout-changed();
                 return accept;
             }
             reject
@@ -95,6 +98,7 @@ export component MainWindow inherits Window {
                     text: root.side-by-side ? "Side by side (Ctrl+B)" : "Inline (Ctrl+B)";
                     clicked => {
                         root.side-by-side = !root.side-by-side;
+                        root.layout-changed();
                         i-keys.focus();
                     }
                 }

@@ -135,9 +135,37 @@ fn push_rendered(out: &mut String, ch: char, width: usize, opts: &RenderOptions)
     }
 }
 
+/// An upper bound on the bytes rendering will produce.
+///
+/// A line with no tabs and no whitespace shown renders byte for byte, so the source length is
+/// exact and this costs nothing. Anything else makes the output longer, and growing a `String`
+/// copies what is already in it, so one pass over the bytes to size it correctly is cheaper
+/// than the reallocations it avoids.
+fn rendered_capacity(source: &str, opts: &RenderOptions) -> usize {
+    let mut tabs = 0;
+    let mut spaces = 0;
+    for byte in source.bytes() {
+        match byte {
+            b'\t' => tabs += 1,
+            b' ' => spaces += 1,
+            _ => {}
+        }
+    }
+
+    // A tab becomes at most a full stop's worth of spaces, or the three byte arrow plus the
+    // rest of them.
+    let per_tab = opts.tab_width.max(1) + 2;
+    // A space shown becomes the two byte middle dot.
+    let per_space = if opts.show_space_tabs { 2 } else { 1 };
+    // Return and pilcrow are two bytes each.
+    let ending = if opts.show_line_endings { 4 } else { 0 };
+
+    source.len() - tabs - spaces + tabs * per_tab + spaces * per_space + ending
+}
+
 /// Renders a line for display, and reports how many columns it occupies.
 pub fn render_line(source: &str, ending: LineEnding, opts: &RenderOptions) -> (String, usize) {
-    let mut text = String::with_capacity(source.len());
+    let mut text = String::with_capacity(rendered_capacity(source, opts));
     let mut columns = 0;
 
     for (cell, ch) in char_cells(source, opts) {

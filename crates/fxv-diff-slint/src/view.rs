@@ -65,6 +65,7 @@ mod tests {
             kind,
             left_line: left,
             right_line: right,
+            columns: text.chars().count() as u32,
             text: text.to_owned(),
             hidden_count: 0,
             source: None,

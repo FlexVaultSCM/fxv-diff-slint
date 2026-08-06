@@ -59,6 +59,28 @@ export component DiffView {
 
     out property <length> visible-width <=> i-list.visible-width;
 
+    // How far down the view can be scrolled. Content shorter than the viewport cannot be
+    // scrolled at all, so the range is zero.
+    out property <length> max-scroll-y:
+        max(0px, root.rows.length * root.row-height - i-list.visible-height);
+
+    // A list normally pulls its own scroll position back into range, but it stops doing that
+    // once something outside binds the position, which is exactly what showing two panes in
+    // step requires. So the position has to be corrected here instead.
+    //
+    // Without this, showing a shorter document leaves the view scrolled past the end of it:
+    // nothing is drawn, and scrolling back up does not work either, because the position was
+    // never in range to begin with.
+    // Hung off `rows` rather than off the range itself. A property nothing else reads is
+    // never evaluated, so a change callback on one never runs; the list reads `rows`.
+    //
+    // The correction lands on the next evaluation rather than immediately, so a host that
+    // swaps to a shorter document without resetting the position will show one frame scrolled
+    // past the end. Resetting on the host side avoids that; this is the backstop.
+    changed rows => {
+        root.scroll-y = clamp(root.scroll-y, -root.max-scroll-y, 0px);
+    }
+
     // Derived from the character cell and the content, never from root.width: reading the
     // view's own width here would make the layout depend on a value the layout produces.
     preferred-width: root.scrollable-width;
