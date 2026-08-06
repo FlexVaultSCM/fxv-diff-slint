@@ -18,6 +18,7 @@ use snafu::{ResultExt, Snafu};
 // == Internal Crates
 use crate::model::{
     DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineEnding, LineKind,
+    LineOrigin,
 };
 
 /// Everything that can go wrong reading a diff.
@@ -100,6 +101,7 @@ fn convert_file(patch: &FilePatch<'_, str>) -> FileDiff {
         left_mode: patch.old_mode().map(convert_mode),
         right_mode: patch.new_mode().map(convert_mode),
         content,
+        fetches: Vec::new(),
     }
 }
 
@@ -161,6 +163,7 @@ fn convert_hunk(hunk: &diffy::Hunk<'_, str>) -> Hunk {
                 left_line,
                 right_line,
                 line_ending,
+                origin: LineOrigin::Diff,
             }
         })
         .collect();

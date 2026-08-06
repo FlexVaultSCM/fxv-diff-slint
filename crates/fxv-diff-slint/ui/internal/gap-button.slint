@@ -1,0 +1,29 @@
+import { DiffStyle } from "style.slint";
+
+// A control on a gap row. Deliberately plain: gap styling is not settled, and this is the
+// smallest thing that makes opening one testable.
+export component GapButton {
+    in property <string> label;
+    callback clicked();
+
+    Rectangle {
+        background: i-touch.has-hover ? DiffStyle.gutter-background : transparent;
+        border-width: 1px;
+        border-color: DiffStyle.separator-color;
+
+        i-touch := TouchArea {
+            clicked => {
+                root.clicked();
+            }
+        }
+
+        Text {
+            text: root.label;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            font-family: DiffStyle.font-family;
+            font-size: DiffStyle.font-size;
+            color: DiffStyle.gutter-text-color;
+        }
+    }
+}

@@ -1,5 +1,7 @@
+import { Spinner } from "std-widgets.slint";
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind, DiffSide } from "types.slint";
+import { DiffRow, DiffRowKind, DiffGapState, DiffSide } from "types.slint";
+import { GapButton } from "gap-button.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
 //
@@ -23,6 +25,12 @@ export component DiffRowView {
     in property <DiffSide> number-side: DiffSide.both;
 
     callback clicked();
+    /// Asks for `count` lines starting at the given line on each side.
+    callback expand(int, int, int);
+    /// How many lines one step of a gap opens.
+    in property <int> expand-step: 20;
+    /// Whether a gap offers to open at all. Off for a diff nobody can fetch lines for.
+    in property <bool> gap-expandable: false;
 
     // Rows that stand for content have line numbers; the rest do not. A filler has none
     // either, but it is still a line's worth of one side of the diff.
@@ -37,6 +45,34 @@ export component DiffRowView {
         || root.data.kind == DiffRowKind.header;
 
     out property <length> full-width: root.gutter-width + root.content-width;
+
+    // How much one step opens, never more than the gap holds.
+    out property <int> step: min(root.expand-step, root.data.hidden-count);
+    // Opening from one end only makes sense when a step leaves something behind.
+    out property <bool> stepped: root.data.hidden-count > root.expand-step;
+
+    out property <bool> gap-waiting: root.data.kind == DiffRowKind.gap
+        && root.data.gap-state == DiffGapState.waiting;
+    out property <bool> gap-failed: root.data.kind == DiffRowKind.gap
+        && root.data.gap-state == DiffGapState.failed;
+
+    // The two affordances, as opposed to the two states above. Both need somewhere for the
+    // lines to come from, so both are gated on the view being expandable at all; the states
+    // are not, because a gap that says it is loading is reporting rather than offering.
+    out property <bool> gap-openable: root.data.kind == DiffRowKind.gap
+        && root.data.gap-state == DiffGapState.hidden
+        && root.gap-expandable;
+    out property <bool> gap-retryable: root.gap-failed && root.gap-expandable;
+
+    // Reserved for whichever set of gap controls is showing, so the label beside them starts
+    // in the same place whatever the gap is doing. Zero when there are none, which is a gap in
+    // a diff nobody can fetch for: it still says how many lines it stands for, at the margin.
+    out property <length> gap-controls-width:
+        root.gap-waiting ? 2 * root.advance + 2 * DiffStyle.gutter-padding
+            : root.gap-retryable ? 7 * root.advance + 2 * DiffStyle.gutter-padding
+            : root.gap-openable
+                ? (root.stepped ? 26 : 10) * root.advance + 4 * DiffStyle.gutter-padding
+            : 0px;
 
     // Declares how far the list can scroll sideways, and does nothing else.
     //
@@ -75,13 +111,21 @@ export component DiffRowView {
             // Content sits to the right of the gutter and scrolls with the list. Gaps and
             // headers describe the file rather than sitting in it, so they are pinned against
             // the visible left edge instead.
-            x: root.spans-gutter
-                ? -root.scroll-x + DiffStyle.gutter-padding
-                : (root.show-line-numbers ? root.gutter-width : 0px);
+            x: root.data.kind == DiffRowKind.gap
+                ? -root.scroll-x + root.gap-controls-width + DiffStyle.gutter-padding
+                : root.spans-gutter
+                    ? -root.scroll-x + DiffStyle.gutter-padding
+                    : (root.show-line-numbers ? root.gutter-width : 0px);
             y: 0;
             height: parent.height;
+            // A gap says how many lines it stands for and what is happening to them. Its
+            // `text` is the hunk heading, or the reason a fetch failed, so it reads as
+            // "12 hidden    fn thing()" or "12 could not be read    no such revision".
             text: root.data.kind == DiffRowKind.gap
-                ? "  " + root.data.hidden-count + " hidden lines"
+                ? "  " + root.data.hidden-count
+                    + (root.gap-waiting ? " loading"
+                        : root.gap-failed ? " could not be read"
+                        : " hidden")
                     + (root.data.text == "" ? "" : "    " + root.data.text)
                 : root.data.text;
             font-family: DiffStyle.font-family;
@@ -89,6 +133,80 @@ export component DiffRowView {
             letter-spacing: root.letter-spacing;
             color: DiffStyle.text-color;
             vertical-alignment: center;
+        }
+    }
+
+    // Controls for opening a gap, pinned against the visible edge like the gap's own label.
+    //
+    // A gap can be opened a piece at a time from either end, which is what makes a large one
+    // usable: a few lines of extra context is the common need, not the whole span. When the
+    // gap is no larger than a step there is only one thing to do, so only one control shows.
+    if root.gap-openable: HorizontalLayout {
+        x: -root.scroll-x + DiffStyle.gutter-padding;
+        y: 0;
+        width: root.gap-controls-width;
+        height: parent.height;
+        spacing: DiffStyle.gutter-padding;
+
+        if root.stepped: GapButton {
+            label: "v " + root.step;
+            // Opens the top of the gap, next to the hunk above it.
+            clicked => {
+                root.expand(root.data.left-line, root.data.right-line, root.step);
+            }
+        }
+
+        if root.stepped: GapButton {
+            label: "^ " + root.step;
+            // Opens the bottom, next to the hunk below.
+            clicked => {
+                root.expand(
+                    root.data.left-line + root.data.hidden-count - root.step,
+                    root.data.right-line + root.data.hidden-count - root.step,
+                    root.step);
+            }
+        }
+
+        GapButton {
+            label: "all " + root.data.hidden-count;
+            clicked => {
+                root.expand(
+                    root.data.left-line, root.data.right-line, root.data.hidden-count);
+            }
+        }
+    }
+
+    // A gap being fetched offers nothing to click: the run it covers is spoken for until the
+    // lines arrive or the attempt fails.
+    if root.gap-waiting: HorizontalLayout {
+        x: -root.scroll-x + DiffStyle.gutter-padding;
+        y: 0;
+        width: root.gap-controls-width;
+        height: parent.height;
+        alignment: center;
+
+        Spinner {
+            // Square, and short of the full row so it does not touch the rows above and below.
+            height: parent.height - 4px;
+            width: self.height;
+            indeterminate: true;
+        }
+    }
+
+    // A run that failed is still exactly the run that was asked for, so retrying is one click
+    // on the same request rather than a fresh choice of how much to open.
+    if root.gap-retryable: HorizontalLayout {
+        x: -root.scroll-x + DiffStyle.gutter-padding;
+        y: 0;
+        width: root.gap-controls-width;
+        height: parent.height;
+
+        GapButton {
+            label: "retry";
+            clicked => {
+                root.expand(
+                    root.data.left-line, root.data.right-line, root.data.hidden-count);
+            }
         }
     }
 

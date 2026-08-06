@@ -37,9 +37,14 @@ pub mod rows;
 pub mod text;
 pub mod view;
 
-pub use model::{DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind};
+pub use model::{
+    DiffLine, DiffSet, Fetch, FetchState, FileChange, FileContent, FileDiff, FileMode, Hunk,
+    LineKind, LineOrigin,
+};
 pub use parse::{parse_unified_diff, ParseError};
-pub use rows::{build_inline, build_side_by_side, Row, RowKind, RowOptions, Rows, SideBySideRows};
+pub use rows::{
+    build_inline, build_side_by_side, GapState, Row, RowKind, RowOptions, Rows, SideBySideRows,
+};
 pub use text::{display_column_of, map_span, render_line, source_index_at, RenderOptions};
 pub use view::ViewRows;
 
@@ -55,6 +60,6 @@ pub mod ui {
 }
 
 pub use ui::{
-    DiffLayoutMode, DiffLineRef, DiffRow, DiffRowKind, DiffSide, DiffStyle, DiffView,
+    DiffGapState, DiffLayoutMode, DiffLineRef, DiffRow, DiffRowKind, DiffSide, DiffStyle, DiffView,
     GapExpandRequest,
 };

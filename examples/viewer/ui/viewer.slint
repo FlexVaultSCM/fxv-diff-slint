@@ -1,5 +1,5 @@
 import { Button, ComboBox } from "std-widgets.slint";
-import { DiffView, DiffScrollbar, DiffRow, DiffSide, DiffStyle } from "@FxvDiff";
+import { DiffView, DiffScrollbar, DiffRow, DiffSide, DiffStyle, GapExpandRequest } from "@FxvDiff";
 
 export component MainWindow inherits Window {
     in property <[string]> sample-names;
@@ -21,6 +21,10 @@ export component MainWindow inherits Window {
 
     in-out property <bool> side-by-side: false;
 
+    // A host that cannot fetch lines leaves this off and its gaps become labels. Toggled here
+    // so both behaviours are visible from the same build.
+    in-out property <bool> gap-expandable: true;
+
     // 0 shows nothing, 1 shows spaces and tabs, 2 adds line endings.
     in-out property <int> whitespace-mode: 0;
 
@@ -29,6 +33,8 @@ export component MainWindow inherits Window {
     callback whitespace-changed();
     // Rows are built for whichever layout is on screen, so switching needs a rebuild.
     callback layout-changed();
+    // Forwarded from whichever view raised it; the host owns fetching the lines.
+    callback gap-expand-requested(GapExpandRequest);
 
     // Ties the two panes together: both views bind to these, so moving either moves both.
     in-out property <length> shared-scroll-y: 0px;
@@ -95,6 +101,14 @@ export component MainWindow inherits Window {
                 }
 
                 Button {
+                    text: root.gap-expandable ? "Gaps: expandable" : "Gaps: static";
+                    clicked => {
+                        root.gap-expandable = !root.gap-expandable;
+                        i-keys.focus();
+                    }
+                }
+
+                Button {
                     text: root.side-by-side ? "Side by side (Ctrl+B)" : "Inline (Ctrl+B)";
                     clicked => {
                         root.side-by-side = !root.side-by-side;
@@ -118,16 +132,17 @@ export component MainWindow inherits Window {
         if root.status == "" && !root.side-by-side: DiffView {
             rows: root.inline-rows;
             longest-line-columns: root.inline-columns;
+            gap-expandable: root.gap-expandable;
             scroll-y <=> root.shared-scroll-y;
             scroll-x <=> root.shared-scroll-x;
 
             line-clicked(ref) => {
                 debug("line clicked", ref.side, ref.line);
             }
-
             gap-expand-requested(req) => {
-                debug("gap expand", req.side, req.start-line, req.count);
+                root.gap-expand-requested(req);
             }
+
         }
 
         // The panes and the bar that drives them share one conditional block: an id declared
@@ -139,6 +154,7 @@ export component MainWindow inherits Window {
                 i-left := DiffView {
                     rows: root.left-rows;
                     longest-line-columns: root.split-columns;
+                    gap-expandable: root.gap-expandable;
                     number-side: DiffSide.left;
                     scroll-y <=> root.shared-scroll-y;
                     scroll-x <=> root.shared-scroll-x;
@@ -151,15 +167,16 @@ export component MainWindow inherits Window {
                     line-clicked(ref) => {
                         debug("left line clicked", ref.line);
                     }
-
                     gap-expand-requested(req) => {
-                        debug("gap expand", req.start-line, req.count);
+                        root.gap-expand-requested(req);
                     }
+
                 }
 
                 i-right := DiffView {
                     rows: root.right-rows;
                     longest-line-columns: root.split-columns;
+                    gap-expandable: root.gap-expandable;
                     number-side: DiffSide.right;
                     scroll-y <=> root.shared-scroll-y;
                     scroll-x <=> root.shared-scroll-x;
@@ -169,10 +186,10 @@ export component MainWindow inherits Window {
                     line-clicked(ref) => {
                         debug("right line clicked", ref.line);
                     }
-
                     gap-expand-requested(req) => {
-                        debug("gap expand", req.start-line, req.count);
+                        root.gap-expand-requested(req);
                     }
+
                 }
             }
 

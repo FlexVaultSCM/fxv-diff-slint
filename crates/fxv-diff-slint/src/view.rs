@@ -15,7 +15,7 @@ use std::rc::Rc;
 use slint::{ModelRc, VecModel};
 
 // == Internal Crates
-use crate::rows::{Row, RowKind, Rows};
+use crate::rows::{GapState, Row, RowKind, Rows};
 use crate::ui;
 
 /// Rows in the form the widget takes, together with the measurement it needs to size its
@@ -27,7 +27,7 @@ pub struct ViewRows {
 
 impl From<&Rows> for ViewRows {
     fn from(rows: &Rows) -> Self {
-        let converted: Vec<ui::DiffRow> = rows.rows.iter().map(to_slint_row).collect();
+        let converted: Vec<ui::DiffRow> = rows.rows.iter().map(|r| r.into()).collect();
         ViewRows {
             rows: ModelRc::from(Rc::new(VecModel::from(converted))),
             longest_line_columns: rows.longest_line_columns as i32,
@@ -35,26 +35,41 @@ impl From<&Rows> for ViewRows {
     }
 }
 
-fn to_slint_row(row: &Row) -> ui::DiffRow {
-    ui::DiffRow {
-        kind: to_slint_kind(row.kind),
-        // Zero means "no line on this side". Line numbers are 1-based, so it cannot collide
-        // with a real one.
-        left_line: row.left_line.unwrap_or(0) as i32,
-        right_line: row.right_line.unwrap_or(0) as i32,
-        text: row.text.clone(),
-        hidden_count: row.hidden_count as i32,
+impl From<&Row> for ui::DiffRow {
+    fn from(row: &Row) -> Self {
+        ui::DiffRow {
+            kind: row.kind.into(),
+            // Zero means "no line on this side". Line numbers are 1-based, so it cannot collide
+            // with a real one.
+            left_line: row.left_line.unwrap_or(0) as i32,
+            right_line: row.right_line.unwrap_or(0) as i32,
+            text: row.text.clone(),
+            hidden_count: row.hidden_count as i32,
+            gap_state: row.gap_state.into(),
+    }
     }
 }
 
-fn to_slint_kind(kind: RowKind) -> ui::DiffRowKind {
-    match kind {
-        RowKind::Header => ui::DiffRowKind::Header,
-        RowKind::Context => ui::DiffRowKind::Context,
-        RowKind::Added => ui::DiffRowKind::Added,
-        RowKind::Removed => ui::DiffRowKind::Removed,
-        RowKind::Gap => ui::DiffRowKind::Gap,
-        RowKind::Filler => ui::DiffRowKind::Filler,
+impl From<GapState> for ui::DiffGapState {
+    fn from(state: GapState) -> Self {
+        match state {
+            GapState::Hidden => ui::DiffGapState::Hidden,
+            GapState::Waiting => ui::DiffGapState::Waiting,
+            GapState::Failed => ui::DiffGapState::Failed,
+        }
+    }
+}
+
+impl From<RowKind> for ui::DiffRowKind {
+    fn from(kind: RowKind) -> Self {
+        match kind {
+            RowKind::Header => ui::DiffRowKind::Header,
+            RowKind::Context => ui::DiffRowKind::Context,
+            RowKind::Added => ui::DiffRowKind::Added,
+            RowKind::Removed => ui::DiffRowKind::Removed,
+            RowKind::Gap => ui::DiffRowKind::Gap,
+            RowKind::Filler => ui::DiffRowKind::Filler,
+        }
     }
 }
 
@@ -71,6 +86,7 @@ mod tests {
             columns: text.chars().count() as u32,
             text: text.into(),
             hidden_count: 0,
+            gap_state: GapState::Hidden,
             source: None,
         }
     }

@@ -7,6 +7,7 @@ import { DiffScrollbar } from "internal/scrollbar.slint";
 import {
     DiffRow,
     DiffRowKind,
+    DiffGapState,
     DiffSide,
     DiffLineRef,
     DiffLayoutMode,
@@ -17,4 +18,5 @@ import {
 // Rust module contains only the last exported component, so DiffView has to come after it.
 export { DiffScrollbar }
 export { DiffView, DiffStyle }
-export { DiffRow, DiffRowKind, DiffSide, DiffLineRef, DiffLayoutMode, GapExpandRequest }
+export { DiffRow, DiffRowKind, DiffGapState, DiffSide, DiffLineRef, DiffLayoutMode }
+export { GapExpandRequest }

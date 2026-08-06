@@ -21,6 +21,14 @@ export component DiffView {
     // Turned off when something outside drives the horizontal scrolling, so a side-by-side
     // view can show one bar for both panes instead of two that always agree.
     in property <bool> show-horizontal-scrollbar: true;
+    /// How many lines one step of a gap opens.
+    in property <int> gap-expand-step: 20;
+    /// Whether gaps offer to open.
+    ///
+    /// Off by default, because opening one is a request the host has to answer and there is no
+    /// way for this view to know whether it can. A diff with nothing behind it still shows its
+    /// gaps, so the file does not read as continuous, but without controls that lead nowhere.
+    in property <bool> gap-expandable: false;
 
     // How many columns the longest line in `rows` occupies. This is a property of the content,
     // not of the viewport.
@@ -106,14 +114,19 @@ export component DiffView {
             show-line-numbers: root.show-line-numbers;
             number-side: root.number-side;
 
+            expand-step: root.gap-expand-step;
+            gap-expandable: root.gap-expandable;
+
+            expand(left, right, count) => {
+                root.gap-expand-requested({
+                    left-start: left,
+                    right-start: right,
+                    count: count,
+                });
+            }
+
             clicked => {
-                if (r.kind == DiffRowKind.gap) {
-                    root.gap-expand-requested({
-                        side: DiffSide.both,
-                        start-line: r.right-line,
-                        count: r.hidden-count,
-                    });
-                } else {
+                if (r.kind != DiffRowKind.gap) {
                     root.line-clicked({
                         side: r.kind == DiffRowKind.removed ? DiffSide.left
                             : r.kind == DiffRowKind.added ? DiffSide.right

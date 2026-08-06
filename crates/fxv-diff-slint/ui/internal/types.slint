@@ -24,6 +24,16 @@ export enum DiffRowKind {
     filler,
 }
 
+// Why a gap's lines are not on screen. Only meaningful on a gap row.
+export enum DiffGapState {
+    // Nobody has asked for them, so the gap offers to open.
+    hidden,
+    // Somebody has, and they have not arrived.
+    waiting,
+    // Somebody did and it did not work. The row's text carries the reason.
+    failed,
+}
+
 // One rendered row. The view is driven entirely by a flat list of these, so the inline and
 // side-by-side layouts differ only in how the list was built, not in how it is drawn.
 export struct DiffRow {
@@ -32,10 +42,12 @@ export struct DiffRow {
     // added line's left column, a gap, or a filler.
     left-line: int,
     right-line: int,
-    // The line content, already tab-expanded, without the leading +/-/space marker.
+    // The line content, already tab-expanded, without the leading +/-/space marker. On a gap
+    // row this is the hunk heading, or the reason a fetch failed.
     text: string,
     // How many lines this gap hides. Only meaningful when kind is gap.
     hidden-count: int,
+    gap-state: DiffGapState,
 }
 
 // Identifies a line by side and line number rather than by row index, so it stays valid when
@@ -45,12 +57,16 @@ export struct DiffLineRef {
     line: int,
 }
 
-// A request for the lines a gap is hiding. The host fetches them however it likes and hands
-// them back; this crate performs no IO.
+// A request for some of the lines a gap is hiding. The host fetches them however it likes and
+// hands them back; this crate performs no IO.
+//
+// A gap can be opened a piece at a time, so this names a run rather than the whole gap. Both
+// line numbers are given because the same content sits at different numbers on each side, and
+// the host may hold either version of the file.
 export struct GapExpandRequest {
-    side: DiffSide,
-    // 1-based, inclusive.
-    start-line: int,
+    // 1-based, inclusive, on each side.
+    left-start: int,
+    right-start: int,
     count: int,
 }
 

@@ -3,6 +3,7 @@ use std::cell::RefCell;
 use std::env;
 use std::fs;
 use std::rc::Rc;
+use std::time;
 
 // == Internal Crates
 use fxv_diff_slint::{
@@ -11,7 +12,7 @@ use fxv_diff_slint::{
 };
 
 // == External Crates
-use slint::{ModelRc, SharedString, VecModel};
+use slint::{ModelRc, SharedString, Timer, VecModel};
 
 // Machine-generated; see the note on the library's `ui` module.
 #[allow(clippy::absolute_paths)]
@@ -22,6 +23,13 @@ use ui::*;
 
 /// Diffs to browse, most taken from this repository's own history so they contain real code
 /// rather than something contrived.
+/// The right-hand file a sample's gaps can be opened from, where we have it. Without one the
+/// gaps are still shown, but there is nothing to fill them with.
+const SAMPLE_SOURCES: &[(&str, &str)] = &[(
+    "Gaps and tabs",
+    include_str!("../samples/synthetic_gaps.after.txt"),
+)];
+
 const SAMPLES: &[(&str, &str)] = &[
     (
         "Gaps and tabs",
@@ -84,6 +92,51 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    {
+        let window = window.as_weak();
+        let diff = diff.clone();
+        // Kept alive past the closure that starts it, since a dropped Timer never fires.
+        let pending = Rc::new(Timer::default());
+        // The sample picker lists the file's one diff when there is one, so its index no longer
+        // selects among the built-in samples.
+        let from_file = from_file.is_some();
+        window.unwrap().on_gap_expand_requested(move |request| {
+            let w = window.unwrap();
+            let index = w.get_current_file().max(0) as usize;
+            let sample = (!from_file).then(|| w.get_current_sample().max(0) as usize);
+            let start = request.right_start.max(1) as u32;
+            let count = request.count.max(0) as u32;
+
+            if let Some(file) = diff.borrow_mut().files.get_mut(index) {
+                file.fetch_started(start, count);
+            }
+            rebuild_rows(&w, &diff.borrow(), index);
+
+            // A real host reads another revision of the file, over a network as often as not.
+            // Answering on a timer instead of straight away is what makes the waiting and
+            // failure states reachable here at all.
+            let window = w.as_weak();
+            let diff = diff.clone();
+            let left = request.left_start.max(1) as u32;
+            pending.start(
+                slint::TimerMode::SingleShot,
+                time::Duration::from_millis(600),
+                move || {
+                    let w = window.unwrap();
+                    if let Some(file) = diff.borrow_mut().files.get_mut(index) {
+                        match fetch(sample, start, count) {
+                            // The request names a run on each side, and the lines are the same
+                            // either way, so both numbers go in.
+                            Ok(lines) => file.expand(left, start, lines),
+                            Err(why) => file.fetch_failed(start, count, why),
+                        }
+                    }
+                    rebuild_rows(&w, &diff.borrow(), index);
+                },
+            );
+        });
+    }
+
     // Whitespace and layout both change what has to be built, so both go back through
     // show_file rather than restyling what is already there.
     for install in [
@@ -127,8 +180,17 @@ fn show_sample(window: &MainWindow, diff: &RefCell<DiffSet>, text: &str) {
     show_file(window, &borrowed, 0);
 }
 
-/// Builds and shows the rows for one file of the current diff.
+/// Shows one file of the current diff, from the top.
 fn show_file(window: &MainWindow, diff: &DiffSet, index: usize) {
+    // A different file is a different document, so it starts at the top. Opening a gap is not
+    // a different document, so it goes through rebuild_rows and keeps its place.
+    window.set_shared_scroll_y(0.0);
+    window.set_shared_scroll_x(0.0);
+    rebuild_rows(window, diff, index);
+}
+
+/// Builds the rows for one file and hands them to the view, leaving the scroll position alone.
+fn rebuild_rows(window: &MainWindow, diff: &DiffSet, index: usize) {
     let Some(file) = diff.files.get(index) else {
         window.set_status("nothing to show".into());
         return;
@@ -143,11 +205,6 @@ fn show_file(window: &MainWindow, diff: &DiffSet, index: usize) {
         return;
     }
     window.set_status(SharedString::new());
-
-    // A different file is a different document, so it starts at the top rather than wherever
-    // the last one was left.
-    window.set_shared_scroll_y(0.0);
-    window.set_shared_scroll_x(0.0);
 
     // Rebuilt rather than restyled: making whitespace visible changes the text itself, so the
     // rows have to be rendered again.
@@ -172,6 +229,38 @@ fn show_file(window: &MainWindow, diff: &DiffSet, index: usize) {
         window.set_inline_columns(inline.longest_line_columns);
         window.set_inline_rows(inline.rows);
     }
+}
+
+/// Reads a run of lines from the right-hand file, standing in for whatever a real host does.
+///
+/// Only some samples come with the file the diff was taken against, and a diff named on the
+/// command line never does, so asking for lines that are not here is a normal outcome rather
+/// than a bug. It is also the only way to reach the failure path the view has to show.
+fn fetch(sample: Option<usize>, right_start: u32, count: u32) -> Result<Vec<String>, String> {
+    let name = SAMPLES
+        .get(sample.ok_or("a diff read from a file does not come with the file it describes")?)
+        .ok_or("no such sample")?
+        .0;
+    let source = SAMPLE_SOURCES
+        .iter()
+        .find(|(sample, _)| *sample == name)
+        .map(|(_, text)| *text)
+        .ok_or("this sample was built without the file it came from")?;
+
+    let lines: Vec<String> = source
+        .lines()
+        .skip(right_start.max(1) as usize - 1)
+        .take(count as usize)
+        .map(str::to_owned)
+        .collect();
+
+    if lines.len() as u32 != count {
+        return Err(format!(
+            "wanted {count} lines from {right_start}, found {}",
+            lines.len()
+        ));
+    }
+    Ok(lines)
 }
 
 /// A label for the file picker, noting anything that happened beyond an edit.

@@ -12,8 +12,20 @@ use std::ops::Range;
 use slint::SharedString;
 
 // == Internal Crates
-use crate::model::{DiffLine, FileDiff, Hunk, LineKind, LineRef};
+use crate::model::{DiffLine, Fetch, FetchState, FileDiff, Hunk, LineKind, LineRef};
 use crate::text::{display_width, render_line, RenderOptions};
+
+/// Why a gap row's lines are not on screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GapState {
+    /// Nobody has asked for them.
+    #[default]
+    Hidden,
+    /// Somebody has, and they have not arrived.
+    Waiting,
+    /// Somebody did, and it did not work. The row's text says why.
+    Failed,
+}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RowKind {
@@ -45,6 +57,8 @@ pub struct Row {
     pub text: SharedString,
     /// How many lines a gap row is hiding. Zero for every other kind.
     pub hidden_count: u32,
+    /// Only meaningful on a gap row.
+    pub gap_state: GapState,
     /// Columns the text occupies.
     ///
     /// Recorded when the row is built because rendering has just walked the line and knows
@@ -64,6 +78,7 @@ impl Row {
             right_line: None,
             text: SharedString::new(),
             hidden_count: 0,
+            gap_state: GapState::Hidden,
             columns: 0,
             source: None,
         }
@@ -132,11 +147,9 @@ pub fn build_inline(file: &FileDiff, opts: &RowOptions) -> Rows {
         rows.push(header_row(file));
     }
 
-    let mut walker = GapWalker::new(opts);
+    let mut walker = GapWalker::new(file, opts);
     for (h, hunk) in file.hunks().iter().enumerate() {
-        if let Some(gap) = walker.gap_before(hunk) {
-            rows.push(gap);
-        }
+        rows.extend(walker.gap_before(hunk));
         for block in change_blocks(&hunk.lines) {
             match block {
                 Block::Context(i) => rows.push(content_row(h, i, &hunk.lines, opts)),
@@ -147,9 +160,7 @@ pub fn build_inline(file: &FileDiff, opts: &RowOptions) -> Rows {
             }
         }
     }
-    if let Some(gap) = walker.trailing_gap() {
-        rows.push(gap);
-    }
+    rows.extend(walker.trailing_gap());
 
     Rows::from_rows(rows)
 }
@@ -164,17 +175,17 @@ pub fn build_side_by_side(file: &FileDiff, opts: &RowOptions) -> SideBySideRows 
         right.push(header_row(file));
     }
 
-    let mut walker = GapWalker::new(opts);
+    let mut walker = GapWalker::new(file, opts);
     for (h, hunk) in file.hunks().iter().enumerate() {
-        if let Some(gap) = walker.gap_before(hunk) {
-            left.push(gap.clone());
-            right.push(gap);
+        for row in walker.gap_before(hunk) {
+            left.push(row.clone());
+            right.push(row);
         }
         pair_hunk(h, hunk, opts, &mut left, &mut right);
     }
-    if let Some(gap) = walker.trailing_gap() {
-        left.push(gap.clone());
-        right.push(gap);
+    for row in walker.trailing_gap() {
+        left.push(row.clone());
+        right.push(row);
     }
 
     debug_assert_eq!(left.len(), right.len(), "panes must stay in step");
@@ -285,6 +296,7 @@ fn content_row(hunk: usize, index: usize, hunk_lines: &[DiffLine], opts: &RowOpt
         right_line: line.right_line,
         text: text.as_str().into(),
         hidden_count: 0,
+        gap_state: GapState::Hidden,
         columns: columns as u32,
         source: Some(LineRef {
             hunk: hunk as u32,
@@ -314,13 +326,14 @@ fn header_row(file: &FileDiff) -> Row {
         columns: display_width(file.display_path()) as u32,
         text: file.display_path().into(),
         hidden_count: 0,
+        gap_state: GapState::Hidden,
         source: None,
     }
 }
 
 /// Tracks how far through each file the hunks have reached, so the lines between them can be
 /// reported as gaps.
-struct GapWalker {
+struct GapWalker<'a> {
     /// First line not yet covered, on each side. Both start at 1.
     left_next: u32,
     right_next: u32,
@@ -328,20 +341,22 @@ struct GapWalker {
     right_total: Option<u32>,
     /// Set once any hunk has been seen, so a file with no hunks produces no trailing gap.
     seen_hunk: bool,
+    fetches: &'a [Fetch],
 }
 
-impl GapWalker {
-    fn new(opts: &RowOptions) -> Self {
+impl<'a> GapWalker<'a> {
+    fn new(file: &'a FileDiff, opts: &RowOptions) -> Self {
         GapWalker {
             left_next: 1,
             right_next: 1,
             left_total: opts.left_total_lines,
             right_total: opts.right_total_lines,
             seen_hunk: false,
+            fetches: &file.fetches,
         }
     }
 
-    fn gap_before(&mut self, hunk: &Hunk) -> Option<Row> {
+    fn gap_before(&mut self, hunk: &Hunk) -> Vec<Row> {
         // Taken as the larger of the two sides. They agree wherever both files have the
         // content, and where one does not (a file that was added, so every left number is
         // zero) the other still gives the right answer.
@@ -349,27 +364,17 @@ impl GapWalker {
         let right_hidden = hunk.right_start.saturating_sub(self.right_next);
         let hidden = left_hidden.max(right_hidden);
 
-        let gap = (hidden > 0).then(|| Row {
-            kind: RowKind::Gap,
-            // Where the hidden run starts, so a host asked to expand it knows what to fetch.
-            left_line: (left_hidden > 0).then_some(self.left_next),
-            right_line: (right_hidden > 0).then_some(self.right_next),
-            columns: hunk.heading.as_deref().map_or(0, display_width) as u32,
-            text: hunk.heading.as_deref().unwrap_or_default().into(),
-            hidden_count: hidden,
-            source: None,
-        });
+        let rows = self.gap_rows(hidden, hunk.heading.as_deref());
 
         self.left_next = (hunk.left_start + hunk.left_len).max(1);
         self.right_next = (hunk.right_start + hunk.right_len).max(1);
         self.seen_hunk = true;
-
-        gap
+        rows
     }
 
-    fn trailing_gap(&self) -> Option<Row> {
+    fn trailing_gap(&self) -> Vec<Row> {
         if !self.seen_hunk {
-            return None;
+            return Vec::new();
         }
 
         let left_hidden = self
@@ -380,22 +385,69 @@ impl GapWalker {
             .map_or(0, |total| (total + 1).saturating_sub(self.right_next));
         let hidden = left_hidden.max(right_hidden);
 
-        (hidden > 0).then(|| Row {
+        self.gap_rows(hidden, None)
+    }
+
+    /// Splits a run of hidden lines around anything being fetched, so a gap being opened
+    /// shows that rather than pretending nothing is happening.
+    fn gap_rows(&self, hidden: u32, heading: Option<&str>) -> Vec<Row> {
+        let mut rows = Vec::new();
+        let mut offset = 0;
+
+        while offset < hidden {
+            let fetch = self.fetch_at(self.right_next + offset);
+            let mut run = 1;
+            while offset + run < hidden && self.fetch_at(self.right_next + offset + run) == fetch {
+                run += 1;
+            }
+
+            // The heading describes the hunk that follows, so it belongs to the stretch that
+            // runs up to it and not to any earlier one.
+            let heading = (offset + run == hidden).then_some(heading).flatten();
+            rows.push(self.gap_row(offset, run, heading, fetch));
+            offset += run;
+        }
+
+        rows
+    }
+
+    fn fetch_at(&self, right_line: u32) -> Option<&'a Fetch> {
+        self.fetches
+            .iter()
+            .find(|f| right_line >= f.right_start && right_line < f.right_start + f.count)
+    }
+
+    fn gap_row(
+        &self,
+        offset: u32,
+        count: u32,
+        heading: Option<&str>,
+        fetch: Option<&Fetch>,
+    ) -> Row {
+        let (state, text) = match fetch.map(|f| &f.state) {
+            None => (GapState::Hidden, heading.unwrap_or_default()),
+            Some(FetchState::Waiting) => (GapState::Waiting, ""),
+            Some(FetchState::Failed(why)) => (GapState::Failed, why.as_str()),
+        };
+
+        Row {
             kind: RowKind::Gap,
-            left_line: (left_hidden > 0).then_some(self.left_next),
-            right_line: (right_hidden > 0).then_some(self.right_next),
-            text: SharedString::new(),
-            hidden_count: hidden,
-            columns: 0,
+            // Where the hidden run starts, so a host asked to open it knows what to fetch.
+            left_line: Some(self.left_next + offset),
+            right_line: Some(self.right_next + offset),
+            columns: display_width(text) as u32,
+            text: text.into(),
+            hidden_count: count,
+            gap_state: state,
             source: None,
-        })
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{DiffLine, FileChange, FileContent, LineEnding};
+    use crate::model::{DiffLine, FileChange, FileContent, LineEnding, LineOrigin};
 
     fn line(kind: LineKind, left: Option<u32>, right: Option<u32>, text: &str) -> DiffLine {
         DiffLine {
@@ -404,6 +456,7 @@ mod tests {
             left_line: left,
             right_line: right,
             line_ending: LineEnding::Lf,
+            origin: LineOrigin::Diff,
         }
     }
 
@@ -415,6 +468,7 @@ mod tests {
             left_mode: None,
             right_mode: None,
             content: FileContent::Text { hunks },
+            fetches: Vec::new(),
         }
     }
 
@@ -611,6 +665,196 @@ mod tests {
                 ..Default::default()
             },
         );
+        assert!(!rows.rows.iter().any(|r| r.kind == RowKind::Gap));
+    }
+
+    /// A file whose first hunk starts at line 10, so lines 1 to 9 are hidden.
+    fn file_with_leading_gap() -> FileDiff {
+        file(vec![change_hunk(10, &["old"], &["new"])])
+    }
+
+    #[test]
+    fn supplied_lines_replace_the_part_of_a_gap_they_cover() {
+        let mut f = file_with_leading_gap();
+        // Open the first three of the nine hidden lines.
+        f.expand(
+            1,
+            1,
+            ["one", "two", "three"].iter().map(|s| (*s).to_owned()),
+        );
+
+        let rows = build_inline(&f, &RowOptions::default());
+        assert_eq!(
+            kinds(&rows.rows)[..5],
+            [
+                RowKind::Context,
+                RowKind::Context,
+                RowKind::Context,
+                RowKind::Gap,
+                RowKind::Context,
+            ]
+        );
+        assert_eq!(rows.rows[0].text, "one");
+        assert_eq!(rows.rows[2].text, "three");
+
+        // What is left keeps its own numbering and count.
+        let gap = &rows.rows[3];
+        assert_eq!(gap.hidden_count, 6, "nine hidden less the three opened");
+        assert_eq!(gap.left_line, Some(4));
+        assert_eq!(gap.right_line, Some(4));
+    }
+
+    #[test]
+    fn a_gap_can_be_opened_from_the_far_end() {
+        let mut f = file_with_leading_gap();
+        // The last three of lines 1 to 9.
+        f.expand(
+            7,
+            7,
+            ["seven", "eight", "nine"].iter().map(|s| (*s).to_owned()),
+        );
+
+        let rows = build_inline(&f, &RowOptions::default());
+        assert_eq!(rows.rows[0].kind, RowKind::Gap);
+        assert_eq!(rows.rows[0].hidden_count, 6);
+        assert_eq!(rows.rows[0].left_line, Some(1));
+        assert_eq!(rows.rows[1].text, "seven");
+        assert_eq!(rows.rows[3].text, "nine");
+    }
+
+    #[test]
+    fn opening_the_middle_of_a_gap_leaves_one_on_each_side() {
+        let mut f = file_with_leading_gap();
+        f.expand(4, 4, ["four", "five"].iter().map(|s| (*s).to_owned()));
+
+        let rows = build_inline(&f, &RowOptions::default());
+        assert_eq!(
+            kinds(&rows.rows)[..4],
+            [
+                RowKind::Gap,
+                RowKind::Context,
+                RowKind::Context,
+                RowKind::Gap
+            ]
+        );
+        assert_eq!(rows.rows[0].hidden_count, 3, "lines 1 to 3");
+        assert_eq!(rows.rows[3].hidden_count, 4, "lines 6 to 9");
+        assert_eq!(rows.rows[3].left_line, Some(6));
+    }
+
+    #[test]
+    fn a_fully_opened_gap_leaves_none() {
+        let mut f = file_with_leading_gap();
+        f.expand(1, 1, (1..=9).map(|n| format!("line {n}")));
+
+        let rows = build_inline(&f, &RowOptions::default());
+        assert!(!rows.rows.iter().any(|r| r.kind == RowKind::Gap));
+        assert_eq!(rows.rows[0].text, "line 1");
+        assert_eq!(rows.rows[8].text, "line 9");
+    }
+
+    #[test]
+    fn opened_lines_are_rendered_like_any_other() {
+        let mut f = file_with_leading_gap();
+        f.expand(1, 1, ["\tindented".to_owned()]);
+
+        let rows = build_inline(&f, &RowOptions::default());
+        assert_eq!(rows.rows[0].text, "    indented", "tabs expanded");
+        assert_eq!(rows.rows[0].columns, 12);
+    }
+
+    #[test]
+    fn opening_a_gap_can_widen_the_longest_line() {
+        let mut f = file_with_leading_gap();
+        let before = build_inline(&f, &RowOptions::default()).longest_line_columns;
+
+        f.expand(1, 1, ["x".repeat(200)]);
+        let after = build_inline(&f, &RowOptions::default()).longest_line_columns;
+
+        assert_eq!(after, 200, "the opened line is now the longest");
+        assert!(after > before);
+    }
+
+    #[test]
+    fn the_heading_stays_on_the_stretch_nearest_its_hunk() {
+        let mut hunk = change_hunk(10, &["old"], &["new"]);
+        hunk.heading = Some("impl Store {".into());
+        let mut f = file(vec![hunk]);
+        // Open the top of the gap, so a hidden stretch still sits against the hunk.
+        f.expand(1, 1, ["one".to_owned()]);
+
+        let rows = build_inline(&f, &RowOptions::default());
+        let gaps: Vec<&Row> = rows
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Gap)
+            .collect();
+        assert_eq!(gaps.len(), 1);
+        assert_eq!(gaps[0].text, "impl Store {");
+    }
+
+    #[test]
+    fn side_by_side_opens_a_gap_on_both_panes_together() {
+        let mut f = file_with_leading_gap();
+        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
+
+        let sbs = build_side_by_side(&f, &RowOptions::default());
+        assert_eq!(sbs.left.rows.len(), sbs.right.rows.len());
+        assert_eq!(sbs.left.rows[0].text, "one");
+        assert_eq!(sbs.right.rows[0].text, "one");
+        assert_eq!(sbs.left.rows[2].kind, RowKind::Gap);
+        assert_eq!(sbs.right.rows[2].kind, RowKind::Gap);
+    }
+
+    #[test]
+    fn lines_far_from_any_hunk_become_a_hunk_of_their_own() {
+        let mut f = file_with_leading_gap();
+        // Line 40 is nowhere near the hidden range, and nothing would normally ask for it.
+        // Adding it anyway is honest: the caller said to show that line, so it is shown, with
+        // the distance to it left as a gap like any other.
+        f.expand(40, 40, ["stray".to_owned()]);
+
+        let rows = build_inline(&f, &RowOptions::default());
+        assert!(rows.rows.iter().any(|r| r.text == "stray"));
+
+        let gaps: Vec<u32> = rows
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Gap)
+            .map(|r| r.hidden_count)
+            .collect();
+        assert_eq!(
+            gaps,
+            vec![9, 27],
+            "before the first hunk, and before line 40"
+        );
+    }
+
+    #[test]
+    fn asking_twice_for_the_same_lines_changes_nothing() {
+        let mut f = file_with_leading_gap();
+        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
+        let once = build_inline(&f, &RowOptions::default());
+
+        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
+        let twice = build_inline(&f, &RowOptions::default());
+
+        assert_eq!(once.rows, twice.rows);
+    }
+
+    #[test]
+    fn opening_the_whole_gap_merges_the_hunks_it_separated() {
+        // Two hunks with sixteen hidden lines between them.
+        let mut f = file(vec![
+            change_hunk(1, &["a"], &["b"]),
+            change_hunk(20, &["c"], &["d"]),
+        ]);
+        assert_eq!(f.hunks().len(), 2);
+
+        f.expand(4, 4, (4..20).map(|n| format!("line {n}")));
+
+        assert_eq!(f.hunks().len(), 1, "nothing separates them any more");
+        let rows = build_inline(&f, &RowOptions::default());
         assert!(!rows.rows.iter().any(|r| r.kind == RowKind::Gap));
     }
 
@@ -877,5 +1121,118 @@ mod tests {
     fn an_empty_row_set_measures_zero() {
         let rows = build_inline(&file(vec![]), &RowOptions::default());
         assert_eq!(rows.longest_line_columns, 0);
+    }
+
+    #[test]
+    fn a_fetch_in_progress_splits_the_gap_and_says_so() {
+        let mut f = file_with_leading_gap();
+        // Lines 1 to 3 of the nine hidden ones.
+        f.fetch_started(1, 3);
+
+        let rows = build_inline(&f, &RowOptions::default());
+        let gaps: Vec<&Row> = rows
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Gap)
+            .collect();
+
+        assert_eq!(gaps.len(), 2, "the run being fetched, then the rest");
+        assert_eq!(gaps[0].gap_state, GapState::Waiting);
+        assert_eq!(gaps[0].hidden_count, 3);
+        assert_eq!(gaps[1].gap_state, GapState::Hidden);
+        assert_eq!(gaps[1].hidden_count, 6);
+    }
+
+    #[test]
+    fn a_failed_fetch_carries_its_reason() {
+        let mut f = file_with_leading_gap();
+        f.fetch_failed(1, 9, "no such revision");
+
+        let rows = build_inline(&f, &RowOptions::default());
+        let gap = rows.rows.iter().find(|r| r.kind == RowKind::Gap).unwrap();
+
+        assert_eq!(gap.gap_state, GapState::Failed);
+        assert_eq!(gap.text, "no such revision");
+        assert_eq!(gap.hidden_count, 9, "the whole run is still hidden");
+    }
+
+    #[test]
+    fn retrying_replaces_the_failure_rather_than_adding_to_it() {
+        let mut f = file_with_leading_gap();
+        f.fetch_failed(1, 9, "no such revision");
+        f.fetch_started(1, 9);
+
+        assert_eq!(f.fetches.len(), 1);
+        let rows = build_inline(&f, &RowOptions::default());
+        let gap = rows.rows.iter().find(|r| r.kind == RowKind::Gap).unwrap();
+        assert_eq!(gap.gap_state, GapState::Waiting);
+    }
+
+    #[test]
+    fn lines_arriving_end_the_fetch_that_asked_for_them() {
+        let mut f = file_with_leading_gap();
+        f.fetch_started(1, 3);
+        f.expand(
+            1,
+            3,
+            ["one", "two", "three"].iter().map(|s| (*s).to_owned()),
+        );
+
+        assert!(f.fetches.is_empty());
+        let rows = build_inline(&f, &RowOptions::default());
+        assert!(rows.rows.iter().all(|r| r.gap_state == GapState::Hidden));
+    }
+
+    #[test]
+    fn abandoning_a_fetch_leaves_the_gap_as_it_was() {
+        let mut f = file_with_leading_gap();
+        f.fetch_started(1, 3);
+        f.fetch_abandoned(1, 3);
+
+        let rows = build_inline(&f, &RowOptions::default());
+        let gaps: Vec<&Row> = rows
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Gap)
+            .collect();
+        assert_eq!(gaps.len(), 1, "back to one undivided run");
+        assert_eq!(gaps[0].hidden_count, 9);
+    }
+
+    #[test]
+    fn the_heading_stays_with_the_stretch_nearest_the_hunk_when_a_fetch_splits_it() {
+        let mut f = file_with_leading_gap();
+        if let FileContent::Text { hunks } = &mut f.content {
+            hunks[0].heading = Some("fn thing()".to_owned());
+        }
+        f.fetch_started(1, 3);
+
+        let rows = build_inline(&f, &RowOptions::default());
+        let gaps: Vec<&Row> = rows
+            .rows
+            .iter()
+            .filter(|r| r.kind == RowKind::Gap)
+            .collect();
+        assert_eq!(
+            gaps[0].text, "",
+            "the fetching stretch is not next to the hunk"
+        );
+        assert_eq!(gaps[1].text, "fn thing()");
+    }
+
+    #[test]
+    fn side_by_side_shows_a_fetch_on_both_panes() {
+        let mut f = file_with_leading_gap();
+        f.fetch_started(1, 3);
+
+        let split = build_side_by_side(&f, &RowOptions::default());
+        let waiting = |rows: &Rows| {
+            rows.rows
+                .iter()
+                .filter(|r| r.gap_state == GapState::Waiting)
+                .count()
+        };
+        assert_eq!(waiting(&split.left), 1);
+        assert_eq!(waiting(&split.right), 1);
     }
 }
