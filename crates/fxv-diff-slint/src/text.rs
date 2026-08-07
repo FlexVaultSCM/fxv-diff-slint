@@ -183,6 +183,26 @@ pub fn render_line(source: &str, ending: LineEnding, opts: &RenderOptions) -> (S
     (text, columns)
 }
 
+/// How many columns a line occupies once rendered, without rendering it.
+///
+/// The same walk `render_line` does, minus the string it builds. Sizing a view's horizontal
+/// scrolling needs the width of every line, and building every line to find out costs an
+/// allocation per line to answer a question that is a sum.
+///
+/// Still depends on the options: showing line endings adds columns, and the tab width decides
+/// how far a tab reaches. Cheap to redo when they change, since nothing is allocated.
+pub fn measure_line(source: &str, ending: LineEnding, opts: &RenderOptions) -> usize {
+    let mut columns = 0;
+    for (cell, _) in char_cells(source, opts) {
+        columns = cell.column + cell.width;
+    }
+
+    if opts.show_line_endings {
+        columns += ending_marks(ending).len();
+    }
+    columns
+}
+
 /// The display column a source character starts at.
 ///
 /// An index past the end of the line reports the column just after it, which is where a caret
@@ -479,6 +499,53 @@ mod tests {
                     columns,
                     "{source:?} disagreed about its own width"
                 );
+            }
+        }
+    }
+
+    #[test]
+    fn measuring_agrees_with_rendering() {
+        // The two walk the same cells, so they must never disagree. If they do, the horizontal
+        // scroll range and the text it is meant to cover part ways.
+        let lines = [
+            "plain text",
+            "\tleading tab",
+            "trailing spaces   ",
+            "mixed\tand  spaced\ttext",
+            "",
+            "unicode: \u{4e2d}\u{6587} wide",
+            // The running total is only ever as right as its last cell, so the cases that
+            // matter are the ones ending in something wider than one column.
+            "ends on a tab\t",
+            "ends wide \u{4e2d}",
+        ];
+        let options = [
+            RenderOptions::default(),
+            RenderOptions {
+                show_space_tabs: true,
+                ..RenderOptions::default()
+            },
+            RenderOptions {
+                show_line_endings: true,
+                ..RenderOptions::default()
+            },
+            RenderOptions {
+                tab_width: 8,
+                show_space_tabs: true,
+                show_line_endings: true,
+            },
+        ];
+
+        for line in lines {
+            for opts in &options {
+                for ending in [LineEnding::Lf, LineEnding::CrLf, LineEnding::None] {
+                    let (_, rendered) = render_line(line, ending, opts);
+                    assert_eq!(
+                        measure_line(line, ending, opts),
+                        rendered,
+                        "line {line:?} with {opts:?} and {ending:?}"
+                    );
+                }
             }
         }
     }

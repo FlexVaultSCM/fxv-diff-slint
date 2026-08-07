@@ -52,10 +52,12 @@ pub use rows::{
 };
 // A selection travels through three forms: the gesture, the durable spans it resolves to, and
 // the ranges those are painted as. One module owns each.
-pub use highlight::{to_highlights, Highlight, HighlightKind, RenderColumnExtent};
+pub use highlight::{to_highlights, DisplayColumnExtent, Highlight, HighlightKind};
 pub use selection::{clamp_to_run, run_bounds, to_spans, Caret, Selection};
 pub use span::{LineSpan, Side, SourceCharExtent};
-pub use text::{display_column_of, map_span, render_line, source_index_at, RenderOptions};
+pub use text::{
+    display_column_of, map_span, measure_line, render_line, source_index_at, RenderOptions,
+};
 pub use view::RowModel;
 
 // Machine-generated, and it names everything through full paths. That is correct for

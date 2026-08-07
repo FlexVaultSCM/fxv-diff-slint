@@ -15,7 +15,7 @@ use slint::SharedString;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    GapState, Highlight, HighlightKind, RenderColumnExtent, Row, RowKind, RowModel, Rows,
+    DisplayColumnExtent, GapState, Highlight, HighlightKind, Row, RowKind, RowModel, Rows,
 };
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
@@ -106,7 +106,7 @@ pub fn highlight(row: usize, columns: Range<u32>, kind: HighlightKind) -> (usize
     (
         row,
         Highlight {
-            extent: RenderColumnExtent::Columns(columns),
+            extent: DisplayColumnExtent::Columns(columns),
             kind,
         },
     )
@@ -117,7 +117,7 @@ pub fn highlight_to_end(row: usize, from: u32, kind: HighlightKind) -> (usize, H
     (
         row,
         Highlight {
-            extent: RenderColumnExtent::ToEnd { from },
+            extent: DisplayColumnExtent::ToEnd { from },
             kind,
         },
     )

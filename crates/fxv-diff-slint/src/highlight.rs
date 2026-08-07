@@ -40,8 +40,11 @@ pub enum HighlightKind {
 /// The same two cases as `SourceCharExtent`, converted through `map_span`. Kept as a separate
 /// type rather than shared: these are the coordinates the view works in, and they move when
 /// the tab width or the whitespace options change.
+///
+/// Columns, not pixels. Turning a column into a position on screen is a multiplication by the
+/// character advance, and that happens in the markup; nothing in this crate knows a pixel.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RenderColumnExtent {
+pub enum DisplayColumnExtent {
     /// Columns `range` of the row.
     Columns(Range<u32>),
     /// From `from` to the edge of the pane, which is how a covered line ending is shown.
@@ -51,7 +54,7 @@ pub enum RenderColumnExtent {
 /// A range to paint behind one row's text.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Highlight {
-    pub extent: RenderColumnExtent,
+    pub extent: DisplayColumnExtent,
     pub kind: HighlightKind,
 }
 
@@ -99,10 +102,10 @@ pub fn to_highlights(
                 if columns.start >= columns.end {
                     continue;
                 }
-                RenderColumnExtent::Columns(columns.start as u32..columns.end as u32)
+                DisplayColumnExtent::Columns(columns.start as u32..columns.end as u32)
             }
             // Where it ends is not a column at all, so only the start is converted.
-            SourceCharExtent::ToEnd { from } => RenderColumnExtent::ToEnd {
+            SourceCharExtent::ToEnd { from } => DisplayColumnExtent::ToEnd {
                 from: display_column_of(text, *from as usize, opts) as u32,
             },
         };
@@ -251,7 +254,7 @@ mod tests {
         assert_eq!(drawn[0].0, row);
         assert_eq!(
             drawn[0].1.extent,
-            RenderColumnExtent::ToEnd { from: 4 },
+            DisplayColumnExtent::ToEnd { from: 4 },
             "source character 1 sits at display column 4, past the tab"
         );
     }

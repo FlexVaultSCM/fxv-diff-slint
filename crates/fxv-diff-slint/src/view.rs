@@ -19,7 +19,7 @@ use std::rc::Rc;
 use slint::{Model, ModelRc, VecModel};
 
 // == Internal Crates
-use crate::highlight::{Highlight, HighlightKind, RenderColumnExtent};
+use crate::highlight::{DisplayColumnExtent, Highlight, HighlightKind};
 use crate::rows::{GapState, Row, RowKind, Rows};
 use crate::ui;
 
@@ -153,10 +153,10 @@ fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::DiffHighlight> {
             // Slint has no enum carrying a payload, so the two cases flatten into a flag.
             // `end` is meaningless when `to_end` is set; the row runs to its own edge.
             let (start, end, to_end) = match &h.extent {
-                RenderColumnExtent::Columns(columns) => {
+                DisplayColumnExtent::Columns(columns) => {
                     (columns.start as i32, columns.end as i32, false)
                 }
-                RenderColumnExtent::ToEnd { from } => (*from as i32, 0, true),
+                DisplayColumnExtent::ToEnd { from } => (*from as i32, 0, true),
             };
             ui::DiffHighlight {
                 start,
@@ -260,7 +260,7 @@ mod tests {
         (
             row,
             Highlight {
-                extent: RenderColumnExtent::Columns(columns),
+                extent: DisplayColumnExtent::Columns(columns),
                 kind: HighlightKind::Marked,
             },
         )
