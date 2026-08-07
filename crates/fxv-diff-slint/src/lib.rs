@@ -31,9 +31,14 @@
 //! highlights and text on a character grid measured from the font, so a system font lookup
 //! would make that grid vary by platform. Setting [`DiffStyle`]'s `font-family` overrides it.
 
+pub mod highlight;
 pub mod model;
 pub mod parse;
 pub mod rows;
+pub mod selection;
+pub mod span;
+#[cfg(test)]
+mod test_fixtures;
 pub mod text;
 pub mod view;
 
@@ -45,8 +50,13 @@ pub use parse::{parse_unified_diff, ParseError};
 pub use rows::{
     build_inline, build_side_by_side, GapState, Row, RowKind, RowOptions, Rows, SideBySideRows,
 };
+// A selection travels through three forms: the gesture, the durable spans it resolves to, and
+// the ranges those are painted as. One module owns each.
+pub use highlight::{to_highlights, Highlight, HighlightKind, RenderColumnExtent};
+pub use selection::{clamp_to_run, run_bounds, to_spans, Caret, Selection};
+pub use span::{LineSpan, Side, SourceCharExtent};
 pub use text::{display_column_of, map_span, render_line, source_index_at, RenderOptions};
-pub use view::ViewRows;
+pub use view::RowModel;
 
 // Machine-generated, and it names everything through full paths. That is correct for
 // generated code and not something to lint.

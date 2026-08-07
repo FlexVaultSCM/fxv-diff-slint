@@ -8,7 +8,7 @@ use std::time;
 // == Internal Crates
 use fxv_diff_slint::{
     build_inline, build_side_by_side, parse_unified_diff, DiffSet, FileDiff, RenderOptions,
-    RowOptions, ViewRows,
+    RowModel, RowOptions,
 };
 
 // == External Crates
@@ -226,12 +226,12 @@ fn rebuild_rows(window: &MainWindow, diff: &DiffSet, index: usize) {
         let split = build_side_by_side(file, &opts);
         // One column count for both panes; see SideBySideRows::longest_line_columns.
         window.set_split_columns(split.longest_line_columns() as i32);
-        window.set_left_rows(ViewRows::from(&split.left).rows);
-        window.set_right_rows(ViewRows::from(&split.right).rows);
+        window.set_left_rows(RowModel::new(split.left).model());
+        window.set_right_rows(RowModel::new(split.right).model());
     } else {
-        let inline = ViewRows::from(&build_inline(file, &opts));
-        window.set_inline_columns(inline.longest_line_columns);
-        window.set_inline_rows(inline.rows);
+        let inline = RowModel::new(build_inline(file, &opts));
+        window.set_inline_columns(inline.longest_line_columns());
+        window.set_inline_rows(inline.model());
     }
 }
 

@@ -34,6 +34,33 @@ export enum DiffGapState {
     failed,
 }
 
+// Why a range of a line is painted, which is what picks its colour.
+//
+// WIP: becomes an index into a list of styles carried by the view, so a host can define its
+// own kinds and how each is drawn without this enum listing them.
+export enum DiffHighlightKind {
+    // What the user is selecting now.
+    selection,
+    // Supplied from outside: a stored selection, or something the host is pointing at.
+    marked,
+}
+
+// A range of one row to paint behind its text.
+//
+// Display columns, not source characters. The crate converts, because how many columns a
+// character occupies depends on the tab width and on whether whitespace is being shown, and
+// nothing outside the widget should have to know that.
+export struct DiffHighlight {
+    start: int,
+    // Ignored when to-end is set.
+    end: int,
+    // Whether the span takes the line ending with it. Such a span is drawn out to the edge of
+    // the pane rather than stopping at the last glyph, because past the final character the
+    // newline is what the rest of the row stands for.
+    to-end: bool,
+    kind: DiffHighlightKind,
+}
+
 // One rendered row. The view is driven entirely by a flat list of these, so the inline and
 // side-by-side layouts differ only in how the list was built, not in how it is drawn.
 export struct DiffRow {
@@ -48,6 +75,8 @@ export struct DiffRow {
     // How many lines this gap hides. Only meaningful when kind is gap.
     hidden-count: int,
     gap-state: DiffGapState,
+    // Ranges to paint behind the text. Empty on most rows.
+    highlights: [DiffHighlight],
 }
 
 // Identifies a line by side and line number rather than by row index, so it stays valid when

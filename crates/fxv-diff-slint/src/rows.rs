@@ -13,6 +13,7 @@ use slint::SharedString;
 
 // == Internal Crates
 use crate::model::{DiffLine, Fetch, FetchState, FileDiff, Hunk, LineKind, LineRef};
+use crate::span::Side;
 use crate::text::{display_width, render_line, RenderOptions};
 
 /// Why a gap row's lines are not on screen.
@@ -71,6 +72,29 @@ pub struct Row {
 }
 
 impl Row {
+    /// Which file names this row, and the line number it has there.
+    ///
+    /// A removed line exists only on the left and an added line only on the right, so each
+    /// decides itself. An unchanged line exists on both, and nothing about the line says which
+    /// is meant: an inline view means the right, being the file as it stands after the change,
+    /// while a pane of a side-by-side view means its own side, since a selection made in the
+    /// left pane is about the left file whatever the line is. That is what `context_side`
+    /// supplies.
+    ///
+    /// Rows standing for no line have no number on either side and return `None`.
+    pub fn file_line(&self, context_side: Side) -> Option<(Side, u32)> {
+        let side = match self.kind {
+            RowKind::Removed => Side::Left,
+            RowKind::Added => Side::Right,
+            _ => context_side,
+        };
+        let line = match side {
+            Side::Left => self.left_line,
+            Side::Right => self.right_line,
+        }?;
+        Some((side, line))
+    }
+
     fn filler() -> Self {
         Row {
             kind: RowKind::Filler,

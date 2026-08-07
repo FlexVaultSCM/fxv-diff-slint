@@ -1,0 +1,11 @@
+diff --git a/f.rs b/f.rs
+index de9eb86..5ab9327 100644
+--- a/f.rs
++++ b/f.rs
+@@ -8,5 +8,5 @@
+ // filler line 8
+ // filler line 9
+ fn alpha() {
+-	let value = compute();
++	let value = compute_more();
+ }

@@ -7,11 +7,16 @@
 // == Std
 use std::time;
 
+// == Std
+use std::ops::Range;
+
 // == External Crates
 use slint::SharedString;
 
 // == Internal Crates
-use fxv_diff_slint::{GapState, Row, RowKind, Rows, ViewRows};
+use fxv_diff_slint::{
+    GapState, Highlight, HighlightKind, RenderColumnExtent, Row, RowKind, RowModel, Rows,
+};
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
 // re-embeds the images they reference, while the globals holding them come from the library
@@ -43,9 +48,9 @@ pub fn harness(count: u32) -> Harness {
 
 /// Replaces what the harness is showing, as switching to another file does.
 pub fn show(harness: &Harness, count: u32) {
-    let view = ViewRows::from(&context_rows(count));
-    harness.set_longest_line_columns(view.longest_line_columns);
-    harness.set_rows(view.rows);
+    let view = RowModel::new(context_rows(count));
+    harness.set_longest_line_columns(view.longest_line_columns());
+    harness.set_rows(view.model());
 }
 
 /// Two panes sharing one scroll position, which is the arrangement that stops the list
@@ -59,9 +64,9 @@ pub fn paired_harness(count: u32) -> PairedHarness {
 
 /// Replaces what a paired harness is showing.
 pub fn show_paired(harness: &PairedHarness, count: u32) {
-    let view = ViewRows::from(&context_rows(count));
-    harness.set_longest_line_columns(view.longest_line_columns);
-    harness.set_rows(view.rows);
+    let view = RowModel::new(context_rows(count));
+    harness.set_longest_line_columns(view.longest_line_columns());
+    harness.set_rows(view.model());
 }
 
 /// Rows handed through the library's own conversion rather than a copy of it, so a break in
@@ -83,6 +88,39 @@ fn context_rows(count: u32) -> Rows {
             .collect(),
         longest_line_columns: COLUMNS,
     }
+}
+
+/// A harness whose rows carry the given highlights, for asserting where they are painted.
+pub fn harness_with_highlights(count: u32, highlights: &[(usize, Highlight)]) -> Harness {
+    i_slint_backend_testing::init_no_event_loop();
+    let harness = Harness::new().expect("creating the harness window");
+    let mut view = RowModel::new(context_rows(count));
+    view.set_highlights(highlights);
+    harness.set_longest_line_columns(view.longest_line_columns());
+    harness.set_rows(view.model());
+    harness
+}
+
+/// A highlight over a range of columns on one row.
+pub fn highlight(row: usize, columns: Range<u32>, kind: HighlightKind) -> (usize, Highlight) {
+    (
+        row,
+        Highlight {
+            extent: RenderColumnExtent::Columns(columns),
+            kind,
+        },
+    )
+}
+
+/// A highlight running from a column to the edge of the pane, as a covered line ending draws.
+pub fn highlight_to_end(row: usize, from: u32, kind: HighlightKind) -> (usize, Highlight) {
+    (
+        row,
+        Highlight {
+            extent: RenderColumnExtent::ToEnd { from },
+            kind,
+        },
+    )
 }
 
 /// Rows currently on screen, for asserting what a viewport shows.

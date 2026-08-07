@@ -1,6 +1,6 @@
 import { Spinner } from "std-widgets.slint";
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind, DiffGapState, DiffSide } from "types.slint";
+import { DiffRow, DiffRowKind, DiffGapState, DiffHighlightKind, DiffSide } from "types.slint";
 import { GapButton } from "gap-button.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
@@ -95,6 +95,25 @@ export component DiffRowView {
             clicked => {
                 root.clicked();
             }
+        }
+
+        // Ranges painted behind the text: what is selected, and whatever the host is
+        // pointing at. Column to x is a multiplication because the grid is monospace and
+        // nothing wraps, so this needs no text layout query. The same arithmetic serves any
+        // range, whatever put it there.
+        for highlight in root.data.highlights: i-highlight := Rectangle {
+            x: (root.show-line-numbers ? root.gutter-width : 0px) + highlight.start * root.advance;
+            y: 0;
+            // A span covering the line ending runs to the body's own edge, which is the whole
+            // scrollable width rather than the visible one, so it keeps reaching the edge when
+            // the view is scrolled sideways.
+            width: highlight.to-end
+                ? parent.width - self.x
+                : (highlight.end - highlight.start) * root.advance;
+            height: parent.height;
+            background: highlight.kind == DiffHighlightKind.selection
+                ? DiffStyle.selection-background
+                : DiffStyle.marked-background;
         }
 
         // A gap describes itself alongside its controls instead, further down.

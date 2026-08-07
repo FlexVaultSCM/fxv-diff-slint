@@ -37,6 +37,14 @@ export global DiffStyle {
     in property <brush> removed-word-background: Palette.color-scheme == ColorScheme.dark
         ? #6b2020 : #ffc9c9;
 
+    // == Ranges painted behind the text
+    //
+    // Drawn over the row background and under the glyphs, so a selected added line still reads
+    // as added. Both are translucent for that reason.
+    in property <brush> selection-background: Palette.selection-background.transparentize(0.55);
+    in property <brush> marked-background: Palette.color-scheme == ColorScheme.dark
+        ? #4a3a0f.transparentize(0.3) : #fff3c4.transparentize(0.2);
+
     // == Foreground
     in property <brush> text-color: Palette.foreground;
     in property <brush> gutter-text-color: Palette.foreground.transparentize(0.45);
