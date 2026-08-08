@@ -111,6 +111,17 @@ export component DiffView {
     /// Raised when a drag finishes, which is when the selection is worth resolving to spans.
     callback selection-finished(DiffSelection);
 
+    // A caret pulled back to the end of the text on the row it landed on, so a selection has
+    // the ragged right edge every other text view has rather than a straight one cutting
+    // through empty space.
+    //
+    // Clamped here rather than in the row that reported it: a drag stays with the row it began
+    // on, and that row cannot know how long the line under the pointer now is. This one has
+    // every row to hand.
+    function on_text(at: DiffPosition) -> DiffPosition {
+        { row: at.row, column: min(at.column, root.rows[at.row].columns) }
+    }
+
     // The selection ordered so that start comes before end, by row and then by column within a
     // row. Worked out once here rather than in every row.
     out property <bool> selection-forwards:
@@ -207,11 +218,11 @@ export component DiffView {
             sel-end: root.sel-end;
 
             select-start(at) => {
-                root.selection-anchor = at;
-                root.selection-focus = at;
+                root.selection-anchor = root.on_text(at);
+                root.selection-focus = root.selection-anchor;
             }
             select-to(at) => {
-                root.selection-focus = at;
+                root.selection-focus = root.on_text(at);
             }
             select-end => {
                 root.selection-finished({

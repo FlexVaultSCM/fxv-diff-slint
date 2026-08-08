@@ -123,6 +123,28 @@ pub fn context_rows(count: u32) -> Vec<DisplayedRow> {
         .collect()
 }
 
+/// A harness whose lines are all different lengths: row n holds n characters.
+///
+/// Anything about a selection stopping at the end of a line needs lines that end in different
+/// places, since rows of one length cannot tell a ragged edge from a straight one. Row 0 is
+/// empty on purpose, so that a line with nothing on it is covered too.
+pub fn harness_ragged(count: u32) -> Harness {
+    backend();
+    let harness = Harness::new().expect("creating the harness window");
+    let opts = RenderOptions::default();
+    let rows: Vec<DisplayedRow> = (0..count)
+        .map(|n| {
+            let text = "x".repeat(n as usize);
+            DisplayedRow::line(n + 1, Side::Right, &text, LineEnding::Lf, &opts)
+        })
+        .collect();
+
+    let view = RowModel::from_rows(rows);
+    harness.set_longest_line_columns(view.longest_line_columns());
+    harness.set_rows(view.model());
+    harness
+}
+
 /// A harness showing rows with a gap partway down.
 ///
 /// A gap is not selectable, so it separates one run of rows from the next. Anything about a

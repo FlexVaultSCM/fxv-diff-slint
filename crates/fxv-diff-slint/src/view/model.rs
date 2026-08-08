@@ -251,6 +251,7 @@ impl From<&DisplayedRow> for ui::DiffRow {
             } else {
                 row.text.clone()
             },
+            columns: row.columns as i32,
             hidden_count: row.hidden_count as i32,
             gap_state: row.gap_state.into(),
             // Zero count means nothing is in flight. A fetch of no lines is not a thing.

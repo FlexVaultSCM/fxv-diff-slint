@@ -65,22 +65,62 @@ fn a_selection_made_upward_covers_the_same_columns() {
 }
 
 #[test]
-fn a_middle_row_of_a_selection_is_covered_whole() {
-    let h = selectable(ROWS);
-    h.set_selection_anchor(at_row(1, 3));
-    h.set_selection_focus(at_row(3, 2));
+fn a_middle_row_stops_at_the_end_of_its_own_text() {
+    // The ragged right edge every text view has. A straight edge would claim empty space past
+    // the end of a line had been selected, which is not something the line can give back.
+    let h = fxv_diff_slint_tests::harness_ragged(20);
+    h.set_selectable(true);
+    settle();
+    h.set_selection_anchor(at_row(2, 0));
+    h.set_selection_focus(at_row(8, 1));
     settle();
 
     let drawn = painted(&h);
-    assert_eq!(drawn.len(), 3, "first, middle and last row");
+    assert_eq!(drawn.len(), 7, "one rectangle per row of the selection");
 
-    // The middle row starts at column 0 and runs past the last character, because the line
-    // ending is part of what was selected.
-    let (x, width) = drawn[1];
-    assert_eq!(x, h.get_gutter_width());
-    assert!(
-        width > h.get_visible_width(),
-        "a covered line ending reaches the scrollable edge, not the last glyph"
+    // Row n holds n characters, and every row but the last also takes its line ending, drawn
+    // as one column past the text.
+    for (nth, (_, width)) in drawn.iter().enumerate().take(6) {
+        let row = nth + 2;
+        assert_eq!(
+            *width,
+            (row as f32 + 1.0) * h.get_advance(),
+            "row {row} holds {row} characters plus its ending"
+        );
+    }
+}
+
+#[test]
+fn a_caret_past_the_end_of_a_line_is_pulled_back_to_it() {
+    let h = fxv_diff_slint_tests::harness_ragged(20);
+    h.set_selectable(true);
+    settle();
+
+    // Row 5 holds five characters; press far beyond them.
+    let y = 5.5 * h.get_row_height();
+    let x = h.get_gutter_width() + 40.0 * h.get_advance();
+    drag(&h, &[(x, y)]);
+
+    assert_eq!(h.get_selection_anchor().column, 5, "the end of the text");
+}
+
+#[test]
+fn a_blank_line_inside_a_selection_still_shows_one() {
+    // A line with nothing on it has a line ending all the same, and painting nothing there
+    // would read as a hole in the middle of the selection.
+    let h = fxv_diff_slint_tests::harness_ragged(20);
+    h.set_selectable(true);
+    settle();
+    h.set_selection_anchor(at_row(0, 0));
+    h.set_selection_focus(at_row(3, 1));
+    settle();
+
+    // Row 0 holds nothing at all, so its whole width is the ending.
+    let drawn = painted(&h);
+    assert_eq!(
+        drawn[0].1,
+        h.get_advance(),
+        "one column for the line ending"
     );
 }
 

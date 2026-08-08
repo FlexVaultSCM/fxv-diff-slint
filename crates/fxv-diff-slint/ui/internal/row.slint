@@ -190,13 +190,16 @@ export component DiffRowView {
         if root.sel-start.row >= 0 && root.index >= root.sel-start.row
             && root.index <= root.sel-end.row: i-selection := Rectangle {
             property <int> from: root.index == root.sel-start.row ? root.sel-start.column : 0;
-            property <bool> to-edge: root.index != root.sel-end.row;
+            // Every row but the last takes its line ending with it, which is drawn as one
+            // column past the text. Without it a blank line inside a selection would paint
+            // nothing at all and read as a hole.
+            property <bool> takes-ending: root.index != root.sel-end.row;
+            property <int> to: self.takes-ending ? root.data.columns : root.sel-end.column;
 
             x: (root.show-line-numbers ? root.gutter-width : 0px) + self.from * root.advance;
             y: 0;
-            width: self.to-edge
-                ? parent.width - self.x
-                : max(0px, (root.sel-end.column - self.from) * root.advance);
+            width: max(0px, (self.to - self.from) * root.advance)
+                + (self.takes-ending ? root.advance : 0px);
             height: parent.height;
             background: DiffStyle.selection-background;
         }

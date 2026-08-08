@@ -87,6 +87,10 @@ export struct DiffRow {
     // The line content, already tab-expanded, without the leading +/-/space marker. On a gap
     // row this is the hunk heading, or the reason a fetch failed.
     text: string,
+    // How many display columns the text occupies. Not the string's length: a tab has already
+    // been expanded and a wide character takes two. This is where the text ends, which is
+    // where a selection on this row stops.
+    columns: int,
     // How many lines this gap hides. Only meaningful when kind is gap.
     hidden-count: int,
     gap-state: DiffGapState,
