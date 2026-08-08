@@ -126,17 +126,24 @@ impl DisplayedRow {
     }
 }
 
-/// Why a range is drawn, which is what picks the colour.
+/// Which channel a range is painted in, which is what picks how it is drawn.
 ///
-/// WIP: becomes an open set of channels, each with its own style configured on the view, so a
-/// host can add its own kinds without this enum knowing about them. The two here are what the
-/// current callers need.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HighlightKind {
+/// An open set. The view carries one style per channel and the numbers mean whatever the host
+/// decides they mean, so a host can paint search results, review comments, or anything else it
+/// has without this crate knowing those exist. Two numbers are spoken for, because this crate
+/// produces ranges in them itself.
+///
+/// Channels are drawn in ascending order, so a higher number paints over a lower one. A channel
+/// the view has no style for draws nothing rather than falling back to a colour that would
+/// claim to mean something.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Channel(pub u32);
+
+impl Channel {
     /// What the user is selecting now.
-    Selection,
+    pub const SELECTION: Channel = Channel(0);
     /// Supplied from outside: a stored selection, or something a host is pointing at.
-    Marked,
+    pub const MARKED: Channel = Channel(1);
 }
 
 /// How much of one row a highlight covers, in the columns the grid is drawn on.
@@ -159,5 +166,5 @@ pub enum DisplayColumnExtent {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Highlight {
     pub extent: DisplayColumnExtent,
-    pub kind: HighlightKind,
+    pub channel: Channel,
 }

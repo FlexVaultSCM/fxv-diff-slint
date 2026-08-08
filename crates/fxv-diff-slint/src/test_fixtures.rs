@@ -32,16 +32,25 @@ pub fn split(file: &FileDiff) -> Layout {
     build_split(file, &RowOptions::default())
 }
 
-/// One pane's worth of rendered rows, which is what the selection and highlight code works on.
+/// One pane's worth of rendered rows, which is what the selection code works on.
 pub fn shown(layout: &Layout, file: &FileDiff, pane: Pane) -> Vec<DisplayedRow> {
+    view(layout, file, pane).rows().to_vec()
+}
+
+/// One pane, which is what the highlight code works on: it resolves a line to a row through
+/// the model's index rather than searching the rows itself.
+pub fn view(layout: &Layout, file: &FileDiff, pane: Pane) -> RowModel {
     RowModel::from_rows(render_diff(layout, file, &RenderOptions::default(), pane))
-        .rows()
-        .to_vec()
 }
 
 /// The inline pane of the fixture, the usual starting point.
 pub fn rows(file: &FileDiff) -> Vec<DisplayedRow> {
     shown(&inline(file), file, Pane::Inline)
+}
+
+/// The same pane, kept whole.
+pub fn inline_view(file: &FileDiff) -> RowModel {
+    view(&inline(file), file, Pane::Inline)
 }
 
 /// The removed line, whose source begins with a tab.

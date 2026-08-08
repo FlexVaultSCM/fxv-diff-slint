@@ -45,6 +45,18 @@ export global DiffStyle {
     in property <brush> marked-background: Palette.color-scheme == ColorScheme.dark
         ? #4a3a0f.transparentize(0.3) : #fff3c4.transparentize(0.2);
 
+    // One brush per channel, indexed by the channel number a highlight carries. Replace the
+    // whole list to define more: a host painting review comments or search results adds its
+    // own entries past the two this crate produces itself.
+    //
+    // A channel with no entry here draws nothing, because an out-of-range index yields a
+    // default brush. That is deliberate: an unstyled channel showing up in some arbitrary
+    // colour would read as meaning something.
+    in property <[brush]> channel-backgrounds: [
+        root.selection-background,
+        root.marked-background,
+    ];
+
     // == Foreground
     in property <brush> text-color: Palette.foreground;
     in property <brush> gutter-text-color: Palette.foreground.transparentize(0.45);

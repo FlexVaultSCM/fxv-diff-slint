@@ -15,8 +15,7 @@ use std::ops::Range;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind, LineEnding, RenderOptions,
-    RowModel, Side,
+    Channel, DisplayColumnExtent, DisplayedRow, LineEnding, RenderOptions, RowModel, Side,
 };
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
@@ -124,37 +123,33 @@ pub fn context_rows(count: u32) -> Vec<DisplayedRow> {
         .collect()
 }
 
-/// A harness whose rows carry the given highlights, for asserting where they are painted.
-pub fn harness_with_highlights(count: u32, highlights: &[(usize, Highlight)]) -> Harness {
+/// A harness whose rows carry the given ranges, for asserting where they are painted.
+///
+/// Takes one entry per channel, because that is how the view is driven: a channel is set as a
+/// whole and replaces whatever it was painting before.
+pub fn harness_with_highlights(
+    count: u32,
+    channels: &[(Channel, Vec<(usize, DisplayColumnExtent)>)],
+) -> Harness {
     backend();
     let harness = Harness::new().expect("creating the harness window");
     let mut view = RowModel::from_rows(context_rows(count));
-    view.set_highlights(highlights);
+    for (channel, ranges) in channels {
+        view.set_channel(*channel, ranges);
+    }
     harness.set_longest_line_columns(view.longest_line_columns());
     harness.set_rows(view.model());
     harness
 }
 
-/// A highlight over a range of columns on one row.
-pub fn highlight(row: usize, columns: Range<u32>, kind: HighlightKind) -> (usize, Highlight) {
-    (
-        row,
-        Highlight {
-            extent: DisplayColumnExtent::Columns(columns),
-            kind,
-        },
-    )
+/// A range covering some columns of one row.
+pub fn columns(row: usize, columns: Range<u32>) -> (usize, DisplayColumnExtent) {
+    (row, DisplayColumnExtent::Columns(columns))
 }
 
-/// A highlight running from a column to the edge of the pane, as a covered line ending draws.
-pub fn highlight_to_end(row: usize, from: u32, kind: HighlightKind) -> (usize, Highlight) {
-    (
-        row,
-        Highlight {
-            extent: DisplayColumnExtent::ToEnd { from },
-            kind,
-        },
-    )
+/// A range running from a column to the edge of the pane, as a covered line ending draws.
+pub fn to_end(row: usize, from: u32) -> (usize, DisplayColumnExtent) {
+    (row, DisplayColumnExtent::ToEnd { from })
 }
 
 /// Rows currently on screen, for asserting what a viewport shows.

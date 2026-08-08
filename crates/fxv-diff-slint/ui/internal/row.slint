@@ -1,5 +1,5 @@
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind, DiffGapState, DiffHighlightKind } from "types.slint";
+import { DiffRow, DiffRowKind, DiffGapState } from "types.slint";
 import { GapButton } from "gap-button.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
@@ -131,9 +131,7 @@ export component DiffRowView {
                 ? parent.width - self.x
                 : (highlight.end - highlight.start) * root.advance;
             height: parent.height;
-            background: highlight.kind == DiffHighlightKind.selection
-                ? DiffStyle.selection-background
-                : DiffStyle.marked-background;
+            background: DiffStyle.channel-backgrounds[highlight.channel];
         }
 
         // A gap describes itself alongside its controls instead, further down.

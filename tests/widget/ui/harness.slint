@@ -1,4 +1,4 @@
-import { DiffView, DiffRow } from "@FxvDiff";
+import { DiffView, DiffRow, DiffStyle } from "@FxvDiff";
 
 // Windows of a known size around the view, so tests can reason about the viewport.
 //
@@ -22,6 +22,11 @@ export component Harness inherits Window {
     out property <length> scrollable-width <=> i-view.scrollable-width;
     out property <length> visible-width <=> i-view.visible-width;
     out property <length> max-scroll-y <=> i-view.max-scroll-y;
+
+    // How many channels the default style paints. Read through the library boundary, because
+    // the default is a list built from other properties of the same global and an empty one
+    // would draw every highlight transparent rather than failing.
+    out property <int> styled-channels: DiffStyle.channel-backgrounds.length;
 
     // The last gap request raised, so a test can assert what a click asked for. Negative
     // until something asks.

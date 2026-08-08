@@ -7,7 +7,7 @@
 //! by the same door.
 
 // == Std crates
-use std::mem;
+use std::collections::{BTreeMap, HashMap};
 use std::rc::Rc;
 
 // == External Crates
@@ -15,8 +15,9 @@ use slint::{Model, ModelRc, VecModel};
 
 // == Internal Crates
 use crate::diff::layout::GapState;
+use crate::span::Side;
 use crate::ui;
-use crate::view::row::{DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind, RowKind};
+use crate::view::row::{Channel, DisplayColumnExtent, DisplayedRow, Highlight, RowKind};
 
 /// The rows a pane is showing, in both the form this crate reasons about and the form the
 /// widget draws, kept together so highlights can change without either being rebuilt.
@@ -24,12 +25,20 @@ pub struct RowModel {
     rows: Vec<DisplayedRow>,
     model: Rc<VecModel<ui::DiffRow>>,
     longest_line_columns: i32,
-    /// What each row that carries anything is currently drawing, in row order.
+    /// Which row shows each line, for resolving a span that names a file and a line number.
     ///
-    /// Kept so a change can write back only the rows whose highlights actually differ. Handing
+    /// Built once, because the rows do not change while the model exists: opening a gap builds
+    /// a new one. The first row wins where a line appears twice, which an inline view does for
+    /// an unchanged line.
+    line_index: HashMap<(Side, u32), usize>,
+    /// What each channel is currently drawing, per channel, in row order.
+    ///
+    /// Kept so a change can write back only the rows whose ranges actually differ. Handing
     /// Slint a row it already holds counts as a change to the model, so the list invalidates
     /// and redraws that row for nothing.
-    drawn: Vec<(usize, Vec<Highlight>)>,
+    ///
+    /// Ordered by channel, which is the order they are painted in.
+    channels: BTreeMap<Channel, Vec<(usize, Vec<DisplayColumnExtent>)>>,
 }
 
 impl RowModel {
@@ -42,12 +51,28 @@ impl RowModel {
         let longest_line_columns = rows.iter().map(|r| r.columns).max().unwrap_or(0) as i32;
         let converted: Vec<ui::DiffRow> = rows.iter().map(|r| r.into()).collect();
 
+        let mut line_index = HashMap::new();
+        for (index, row) in rows.iter().enumerate() {
+            if let Some(id) = row.id {
+                line_index.entry(id).or_insert(index);
+            }
+        }
+
         RowModel {
             rows,
             model: Rc::new(VecModel::from(converted)),
             longest_line_columns,
-            drawn: Vec::new(),
+            line_index,
+            channels: BTreeMap::new(),
         }
+    }
+
+    /// Which row shows a line, if this pane is showing it at all.
+    ///
+    /// A pane of a split view holds one side, and a line inside a gap is not on screen, so a
+    /// span naming either has no row here. That is ordinary rather than an error.
+    pub fn row_of(&self, side: Side, line: u32) -> Option<usize> {
+        self.line_index.get(&(side, line)).copied()
     }
 
     /// What the widget binds to.
@@ -70,66 +95,111 @@ impl RowModel {
         self.longest_line_columns
     }
 
-    /// Replaces every highlight on screen.
+    /// Replaces everything one channel is painting, leaving every other channel alone.
     ///
-    /// Returns how many rows were written, which is the measure of what this cost.
-    ///
-    /// WIP: this takes one flat list, so a caller with two sources has to merge them and
-    /// resend both whenever either changes. It becomes one call per channel next, at which
-    /// point a change to one channel stops touching the other's rows at all.
-    pub fn set_highlights(&mut self, highlights: &[(usize, Highlight)]) -> usize {
-        let wanted = group_by_row(highlights, self.rows.len());
-        // Taken out so the loops below read a local rather than borrowing `self`, which is
-        // what lets `write` take `&mut self` and keep an ordinary counter.
-        let previous = mem::take(&mut self.drawn);
-        let mut written = 0;
+    /// Returns how many rows were written, which is the measure of what this cost. A row is
+    /// written only if what it draws actually changed, so resending an unchanged set costs
+    /// nothing and a change to one channel does not touch rows that only another paints.
+    pub fn set_channel(
+        &mut self,
+        channel: Channel,
+        ranges: &[(usize, DisplayColumnExtent)],
+    ) -> usize {
+        let wanted = group_by_row(ranges, self.rows.len());
+        let previous = self.channels.get(&channel).map_or(&[][..], Vec::as_slice);
+        let touched = differing_rows(previous, &wanted);
 
-        // Rows that had something and no longer do.
-        for (index, _) in &previous {
-            if wanted.binary_search_by_key(index, |(i, _)| *i).is_err() {
-                written += usize::from(self.write(*index, &[]));
-            }
-        }
-
-        for (index, list) in &wanted {
-            let unchanged = previous
-                .binary_search_by_key(index, |(i, _)| *i)
-                .is_ok_and(|at| previous[at].1 == *list);
-            if !unchanged {
-                written += usize::from(self.write(*index, list));
-            }
-        }
-
-        self.drawn = wanted;
-        written
+        self.channels.insert(channel, wanted);
+        touched
+            .into_iter()
+            .filter(|index| self.write(*index))
+            .count()
     }
 
-    /// Hands one row back to Slint. Reports whether it did, since a row that has gone missing
-    /// is not a write.
-    fn write(&mut self, index: usize, highlights: &[Highlight]) -> bool {
+    /// Rebuilds one row's highlights from every channel and hands it back to Slint.
+    ///
+    /// Reports whether it did, since a row that has gone missing is not a write.
+    fn write(&self, index: usize) -> bool {
         let Some(mut row) = self.model.row_data(index) else {
             return false;
         };
-        row.highlights = to_slint_highlights(highlights);
+        // Ascending channel order, so a higher channel is drawn over a lower one.
+        let mut all = Vec::new();
+        for (channel, rows) in &self.channels {
+            if let Ok(at) = rows.binary_search_by_key(&index, |(i, _)| *i) {
+                all.extend(rows[at].1.iter().map(|extent| Highlight {
+                    extent: extent.clone(),
+                    channel: *channel,
+                }));
+            }
+        }
+        row.highlights = to_slint_highlights(&all);
         self.model.set_row_data(index, row);
         true
     }
 }
 
-/// Gathers highlights per row, in row order, dropping any that name a row that is not there.
+/// Rows whose contents differ between two grouped lists, both in row order.
 ///
-/// Sorted rather than grouped in place so both this and the previous state can be walked by
-/// binary search, instead of scanning one for every entry of the other.
-fn group_by_row(highlights: &[(usize, Highlight)], rows: usize) -> Vec<(usize, Vec<Highlight>)> {
-    let mut ordered: Vec<&(usize, Highlight)> =
-        highlights.iter().filter(|(i, _)| *i < rows).collect();
+/// Walked in step rather than searched, since both are sorted and either can hold rows the
+/// other does not.
+fn differing_rows(
+    previous: &[(usize, Vec<DisplayColumnExtent>)],
+    wanted: &[(usize, Vec<DisplayColumnExtent>)],
+) -> Vec<usize> {
+    let mut touched = Vec::new();
+    let (mut a, mut b) = (0, 0);
+    while a < previous.len() || b < wanted.len() {
+        match (previous.get(a), wanted.get(b)) {
+            // Had ranges, has none now.
+            (Some((i, _)), None) => {
+                touched.push(*i);
+                a += 1;
+            }
+            // Has ranges, had none.
+            (None, Some((j, _))) => {
+                touched.push(*j);
+                b += 1;
+            }
+            (Some((i, old)), Some((j, new))) => {
+                if i < j {
+                    touched.push(*i);
+                    a += 1;
+                } else if j < i {
+                    touched.push(*j);
+                    b += 1;
+                } else {
+                    if old != new {
+                        touched.push(*i);
+                    }
+                    a += 1;
+                    b += 1;
+                }
+            }
+            (None, None) => break,
+        }
+    }
+    touched
+}
+
+/// Gathers one channel's ranges per row, in row order, dropping any that name a row that is
+/// not there.
+///
+/// Sorted rather than grouped in place so this and the previous state can be walked in step,
+/// instead of scanning one for every entry of the other.
+fn group_by_row(
+    ranges: &[(usize, DisplayColumnExtent)],
+    rows: usize,
+) -> Vec<(usize, Vec<DisplayColumnExtent>)> {
+    let mut ordered: Vec<&(usize, DisplayColumnExtent)> =
+        ranges.iter().filter(|(i, _)| *i < rows).collect();
     ordered.sort_by_key(|(i, _)| *i);
 
-    let mut grouped: Vec<(usize, Vec<Highlight>)> = Vec::new();
-    for (index, highlight) in ordered {
+    let mut grouped: Vec<(usize, Vec<DisplayColumnExtent>)> = Vec::new();
+    for (index, extent) in ordered {
         match grouped.last_mut() {
-            Some((at, list)) if at == index => list.push(highlight.clone()),
-            _ => grouped.push((*index, vec![highlight.clone()])),
+            Some((at, list)) if at == index => list.push(extent.clone()),
+            _ => grouped.push((*index, vec![extent.clone()])),
         }
     }
     grouped
@@ -198,20 +268,11 @@ fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::DiffHighlight> {
                 start,
                 end,
                 to_end,
-                kind: h.kind.into(),
+                channel: h.channel.0 as i32,
             }
         })
         .collect();
     ModelRc::from(Rc::new(VecModel::from(converted)))
-}
-
-impl From<HighlightKind> for ui::DiffHighlightKind {
-    fn from(kind: HighlightKind) -> Self {
-        match kind {
-            HighlightKind::Selection => ui::DiffHighlightKind::Selection,
-            HighlightKind::Marked => ui::DiffHighlightKind::Marked,
-        }
-    }
 }
 
 impl From<GapState> for ui::DiffGapState {
@@ -508,14 +569,8 @@ mod tests {
 
     // == Highlights
 
-    fn mark(row: usize, columns: Range<u32>) -> (usize, Highlight) {
-        (
-            row,
-            Highlight {
-                extent: DisplayColumnExtent::Columns(columns),
-                kind: HighlightKind::Marked,
-            },
-        )
+    fn mark(row: usize, columns: Range<u32>) -> (usize, DisplayColumnExtent) {
+        (row, DisplayColumnExtent::Columns(columns))
     }
 
     fn model() -> RowModel {
@@ -535,17 +590,21 @@ mod tests {
         let mut view = model();
         let same = vec![mark(1, 0..3), mark(3, 1..2)];
 
-        assert_eq!(view.set_highlights(&same), 2, "both rows written once");
-        assert_eq!(view.set_highlights(&same), 0, "and not written again");
+        assert_eq!(
+            view.set_channel(Channel::MARKED, &same),
+            2,
+            "both rows once"
+        );
+        assert_eq!(view.set_channel(Channel::MARKED, &same), 0, "not again");
     }
 
     #[test]
     fn only_the_rows_that_changed_are_written() {
         let mut view = model();
-        view.set_highlights(&[mark(1, 0..3), mark(3, 1..2)]);
+        view.set_channel(Channel::MARKED, &[mark(1, 0..3), mark(3, 1..2)]);
 
-        // Line 1 keeps exactly what it had; row 3's range moves.
-        let written = view.set_highlights(&[mark(1, 0..3), mark(3, 4..6)]);
+        // Row 1 keeps exactly what it had; row 3's range moves.
+        let written = view.set_channel(Channel::MARKED, &[mark(1, 0..3), mark(3, 4..6)]);
 
         assert_eq!(written, 1, "only the row that moved");
     }
@@ -553,9 +612,68 @@ mod tests {
     #[test]
     fn a_row_that_loses_its_highlights_is_cleared() {
         let mut view = model();
-        view.set_highlights(&[mark(2, 0..3)]);
+        view.set_channel(Channel::MARKED, &[mark(2, 0..3)]);
 
-        assert_eq!(view.set_highlights(&[]), 1, "cleared, once");
+        assert_eq!(view.set_channel(Channel::MARKED, &[]), 1, "cleared, once");
         assert_eq!(view.model().row_data(2).unwrap().highlights.row_count(), 0);
+    }
+
+    #[test]
+    fn setting_one_channel_leaves_another_channels_rows_alone() {
+        // The reason a channel is set on its own: a host repainting its marks must not cost
+        // anything on the rows that only carry a selection.
+        let mut view = model();
+        view.set_channel(Channel::SELECTION, &[mark(1, 0..3)]);
+        view.set_channel(Channel::MARKED, &[mark(3, 0..3)]);
+
+        let written = view.set_channel(Channel::MARKED, &[mark(3, 4..6)]);
+
+        assert_eq!(written, 1, "row 3 only; row 1 carries a different channel");
+    }
+
+    #[test]
+    fn a_row_carrying_two_channels_draws_both() {
+        let mut view = model();
+        view.set_channel(Channel::SELECTION, &[mark(1, 0..3)]);
+        view.set_channel(Channel::MARKED, &[mark(1, 5..7)]);
+
+        let drawn = view.model().row_data(1).unwrap().highlights;
+        assert_eq!(drawn.row_count(), 2, "one range from each channel");
+        // Ascending channel order, so a higher channel paints over a lower one.
+        assert_eq!(
+            drawn.row_data(0).unwrap().channel,
+            Channel::SELECTION.0 as i32
+        );
+        assert_eq!(drawn.row_data(1).unwrap().channel, Channel::MARKED.0 as i32);
+    }
+
+    #[test]
+    fn clearing_one_channel_leaves_the_other_drawn() {
+        let mut view = model();
+        view.set_channel(Channel::SELECTION, &[mark(1, 0..3)]);
+        view.set_channel(Channel::MARKED, &[mark(1, 5..7)]);
+
+        view.set_channel(Channel::SELECTION, &[]);
+
+        let drawn = view.model().row_data(1).unwrap().highlights;
+        assert_eq!(
+            drawn.row_count(),
+            1,
+            "the mark survives the selection going"
+        );
+        assert_eq!(drawn.row_data(0).unwrap().channel, Channel::MARKED.0 as i32);
+    }
+
+    #[test]
+    fn a_line_resolves_to_the_row_showing_it() {
+        let view = model();
+        let row = view
+            .rows()
+            .iter()
+            .position(|r| r.id.is_some())
+            .expect("the fixture shows some lines");
+        let (side, line) = view.rows()[row].id.unwrap();
+
+        assert_eq!(view.row_of(side, line), Some(row));
     }
 }

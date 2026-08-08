@@ -13,42 +13,32 @@
 //! paint, and a host marking a line is another.
 
 // == Std
-use std::collections::HashMap;
 
 // == Internal Crates
 use crate::diff::model::FileDiff;
-use crate::span::{LineSpan, Side, SourceCharExtent};
+use crate::span::{LineSpan, SourceCharExtent};
 use crate::text::{display_column_of, map_span, RenderOptions};
-use crate::view::{DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind};
+use crate::view::{DisplayColumnExtent, RowModel};
 
-/// Where to draw a set of spans, as a highlight against the row that carries each line.
+/// Where to draw a set of spans, as a range against the row that carries each line.
+///
+/// The result goes to `RowModel::set_channel`, which decides how it is painted. What the spans
+/// mean is the caller's business; this only says where they land.
 ///
 /// Spans naming a line the view is not currently showing are dropped rather than reported. A
 /// host restoring a stored selection may well hand back lines that are inside a gap now, and
 /// that is ordinary rather than an error. It also means the same stored set can be given to
 /// both panes of a split view, each drawing only what belongs to it.
-///
-/// WIP: the line index is rebuilt on every call, so this costs a walk of every row whatever
-/// the spans ask for. That is the wrong frequency for the case it was written for, where a
-/// host's marks stay put while something else changes. It moves to an index built once per
-/// row model and kept.
 pub fn to_highlights(
-    rows: &[DisplayedRow],
+    view: &RowModel,
     file: &FileDiff,
     opts: &RenderOptions,
     spans: &[LineSpan],
-    kind: HighlightKind,
-) -> Vec<(usize, Highlight)> {
-    let mut by_line: HashMap<(Side, u32), usize> = HashMap::new();
-    for (index, row) in rows.iter().enumerate() {
-        if let Some((side, line)) = row.id {
-            by_line.entry((side, line)).or_insert(index);
-        }
-    }
-
+) -> Vec<(usize, DisplayColumnExtent)> {
+    let rows = view.rows();
     let mut out = Vec::new();
     for span in spans {
-        let Some(&index) = by_line.get(&(span.side, span.line)) else {
+        let Some(index) = view.row_of(span.side, span.line) else {
             continue;
         };
         let Some(source) = rows[index].source else {
@@ -71,10 +61,8 @@ pub fn to_highlights(
                 from: display_column_of(text, *from as usize, opts) as u32,
             },
         };
-
-        out.push((index, Highlight { extent, kind }));
+        out.push((index, extent));
     }
-
     out
 }
 
@@ -83,7 +71,8 @@ mod tests {
     use super::*;
     use crate::diff::render::{render_diff, Pane};
     use crate::selection::{to_spans, Caret, Selection};
-    use crate::test_fixtures::{file, inline, removed_row, rows};
+    use crate::span::Side;
+    use crate::test_fixtures::{file, inline, inline_view, removed_row, rows};
     use crate::view::RowModel;
 
     fn caret(row: usize, column: u32) -> Caret {
@@ -104,8 +93,9 @@ mod tests {
         };
 
         let stored = to_spans(&r, &f, &opts, &selection);
-        let drawn_live = to_highlights(&r, &f, &opts, &stored, HighlightKind::Selection);
-        let drawn_again = to_highlights(&r, &f, &opts, &stored, HighlightKind::Selection);
+        let v = inline_view(&f);
+        let drawn_live = to_highlights(&v, &f, &opts, &stored);
+        let drawn_again = to_highlights(&v, &f, &opts, &stored);
 
         assert!(
             !drawn_live.is_empty(),
@@ -142,10 +132,8 @@ mod tests {
             },
         );
 
-        let after = RowModel::from_rows(render_diff(&layout, &f, &visible, Pane::Inline))
-            .rows()
-            .to_vec();
-        let drawn = to_highlights(&after, &f, &visible, &spans, HighlightKind::Marked);
+        let after = RowModel::from_rows(render_diff(&layout, &f, &visible, Pane::Inline));
+        let drawn = to_highlights(&after, &f, &visible, &spans);
 
         assert_eq!(
             drawn.len(),
@@ -158,20 +146,13 @@ mod tests {
     #[test]
     fn a_span_naming_a_line_that_is_not_shown_is_dropped() {
         let f = file();
-        let r = rows(&f);
         let spans = vec![LineSpan {
             side: Side::Right,
             line: 9999,
             extent: SourceCharExtent::Columns(0..3),
         }];
 
-        let drawn = to_highlights(
-            &r,
-            &f,
-            &RenderOptions::default(),
-            &spans,
-            HighlightKind::Marked,
-        );
+        let drawn = to_highlights(&inline_view(&f), &f, &RenderOptions::default(), &spans);
         assert!(drawn.is_empty(), "a line inside a gap is not an error");
     }
 
@@ -189,12 +170,12 @@ mod tests {
             line: 11,
             extent: SourceCharExtent::ToEnd { from: 1 },
         }];
-        let drawn = to_highlights(&r, &f, &opts, &spans, HighlightKind::Marked);
+        let drawn = to_highlights(&inline_view(&f), &f, &opts, &spans);
 
         assert_eq!(drawn.len(), 1);
         assert_eq!(drawn[0].0, row);
         assert_eq!(
-            drawn[0].1.extent,
+            drawn[0].1,
             DisplayColumnExtent::ToEnd { from: 4 },
             "source character 1 sits at display column 4, past the tab"
         );

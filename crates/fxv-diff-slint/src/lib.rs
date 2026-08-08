@@ -60,7 +60,7 @@ pub use text::{
     display_column_of, map_span, measure_line, render_line, source_index_at, split_lines,
     strip_terminator, LineEnding, RenderOptions,
 };
-pub use view::{DisplayColumnExtent, Highlight, HighlightKind};
+pub use view::{Channel, DisplayColumnExtent, Highlight};
 pub use view::{DisplayedRow, RowKind, RowModel, GUTTER_COLUMNS};
 
 // Machine-generated, and it names everything through full paths. That is correct for
