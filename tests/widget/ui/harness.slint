@@ -27,6 +27,8 @@ export component Harness inherits Window {
     // the default is a list built from other properties of the same global and an empty one
     // would draw every highlight transparent rather than failing.
     out property <int> styled-channels: DiffStyle.channel-backgrounds.length;
+    in property <int> reveal-row: -1;
+    in property <int> reveal-token;
 
     // The last gap request raised, so a test can assert what a click asked for. Negative
     // until something asks.
@@ -42,6 +44,8 @@ export component Harness inherits Window {
 
     VerticalLayout {
         i-view := DiffView {
+        reveal-row: root.reveal-row;
+        reveal-token: root.reveal-token;
             rows: root.rows;
             longest-line-columns: root.longest-line-columns;
             gap-expandable: root.gap-expandable;
@@ -72,6 +76,8 @@ export component PairedHarness inherits Window {
 
     out property <length> row-height <=> i-left.row-height;
     out property <length> max-scroll-y <=> i-left.max-scroll-y;
+    in property <int> reveal-row: -1;
+    in property <int> reveal-token;
 
     width: 800px;
     height: 400px;
@@ -81,6 +87,8 @@ export component PairedHarness inherits Window {
             rows: root.rows;
             longest-line-columns: root.longest-line-columns;
             scroll-y <=> root.scroll-y;
+            reveal-row: root.reveal-row;
+            reveal-token: root.reveal-token;
             preferred-width: 0px;
         }
 

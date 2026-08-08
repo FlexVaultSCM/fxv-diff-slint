@@ -144,6 +144,13 @@ impl Channel {
     pub const SELECTION: Channel = Channel(0);
     /// Supplied from outside: a stored selection, or something a host is pointing at.
     pub const MARKED: Channel = Channel(1);
+
+    /// The first channel this crate does not use itself.
+    ///
+    /// A host numbers its own from here rather than picking numbers, so that this crate taking
+    /// another channel later does not silently collide with one already in use. Anything at or
+    /// above this is the host's to define.
+    pub const FIRST_FREE: Channel = Channel(2);
 }
 
 /// How much of one row a highlight covers, in the columns the grid is drawn on.

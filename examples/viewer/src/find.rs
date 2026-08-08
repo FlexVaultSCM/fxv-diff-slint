@@ -1,0 +1,138 @@
+//! Finding text in what a pane is showing.
+//!
+//! Nothing here is part of the widget. It exists to drive the highlight channels from outside,
+//! which is what a host does: find the positions, hand them over, let the view draw them.
+//!
+//! Matches are found in source text and converted to display columns, never found in the text
+//! a row draws. A rendered line has its tabs expanded and, with whitespace display on, its
+//! spaces replaced by proxy glyphs, so searching it would have a query for a space match a
+//! middle dot and a query containing a tab match nothing at all.
+
+// == Std crates
+use std::ops::Range;
+
+// == Internal Crates
+use fxv_diff_slint::{
+    map_span, Channel, DisplayColumnExtent, FileDiff, RenderOptions, RowModel, Side,
+};
+
+/// The channel this application paints search matches in.
+///
+/// Numbered from the first the library leaves free rather than picked, so that the library
+/// taking another channel later cannot quietly land on top of this one.
+pub const SEARCH: Channel = Channel(Channel::FIRST_FREE.0);
+
+/// The one match being stepped through, painted over the rest.
+///
+/// A higher channel than `SEARCH`, so it draws on top. The two are set separately: the whole
+/// set changes only when the query does, while stepping touches a row or two.
+pub const CURRENT: Channel = Channel(Channel::FIRST_FREE.0 + 1);
+
+/// Which pane a match was found in.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Which {
+    Inline,
+    Left,
+    Right,
+    Plain,
+}
+
+/// One match, kept so the find controls can step through them in the order they are read.
+pub struct Found {
+    pub which: Which,
+    pub row: usize,
+    pub extent: DisplayColumnExtent,
+}
+
+/// Every match of the current query, and which one is current.
+///
+/// The two tabs are searched separately and stepped separately, because they are different
+/// documents and a position in one means nothing in the other.
+#[derive(Default)]
+pub struct Find {
+    pub diff: Vec<Found>,
+    pub plain: Vec<Found>,
+    pub at_diff: usize,
+    pub at_plain: usize,
+}
+
+/// Where a query occurs in the lines a diff pane is showing.
+pub fn diff_matches(
+    model: &RowModel,
+    file: &FileDiff,
+    opts: &RenderOptions,
+    query: &str,
+    pane: Which,
+) -> Vec<(usize, DisplayColumnExtent)> {
+    let mut found = Vec::new();
+    for (row, displayed) in model.rows().iter().enumerate() {
+        // A gap, a filler or a header stands for no line, so there is nothing to search.
+        let Some(source) = displayed.source else {
+            continue;
+        };
+        let Some(line) = file.line(source) else {
+            continue;
+        };
+
+        for chars in match_ranges(&line.text, query) {
+            // Source characters are not display columns: a tab is one character and several
+            // columns, and showing whitespace changes the count again. The conversion is the
+            // same one a stored selection goes through.
+            let columns = map_span(&line.text, chars.clone(), opts);
+            if let Some((side, number)) = displayed.id {
+                log_match(pane, row, side, number, &chars, &columns);
+            }
+            found.push((
+                row,
+                DisplayColumnExtent::Columns(columns.start as u32..columns.end as u32),
+            ));
+        }
+    }
+    found
+}
+
+/// Character ranges where `query` occurs in `text`, counted in characters rather than bytes.
+///
+/// Characters, because that is what a span is measured in. Case sensitive and literal: a
+/// viewer for testing highlights wants a query that means exactly what it says.
+pub fn match_ranges(text: &str, query: &str) -> Vec<Range<usize>> {
+    if query.is_empty() {
+        return Vec::new();
+    }
+    let width = query.chars().count();
+
+    // Counted forward from the previous match rather than from the start of the line, so a
+    // line with many matches costs one walk rather than one per match.
+    let mut out = Vec::new();
+    let mut chars = 0;
+    let mut counted_to = 0;
+    for (byte, _) in text.match_indices(query) {
+        chars += text[counted_to..byte].chars().count();
+        counted_to = byte;
+        out.push(chars..chars + width);
+    }
+    out
+}
+
+/// Reports one match on stderr, in both the durable form and the drawn one.
+///
+/// The durable half is what a host would store: a side, a line number, and a character range,
+/// none of which move when a gap opens or the whitespace options change. The drawn half is the
+/// row and the columns it landed on, which do.
+pub fn log_match(
+    pane: Which,
+    row: usize,
+    side: Side,
+    line: u32,
+    chars: &Range<usize>,
+    columns: &Range<usize>,
+) {
+    let side = match side {
+        Side::Left => "left",
+        Side::Right => "right",
+    };
+    eprintln!(
+        "find: pane={pane:?} span={side}:{line} chars={}..{} drawn at row={row} columns={}..{}",
+        chars.start, chars.end, columns.start, columns.end
+    );
+}

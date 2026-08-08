@@ -52,6 +52,46 @@ export component DiffView {
     // differ and the sides drift apart horizontally.
     in property <int> longest-line-columns: 120;
 
+    /// A row to bring into sight, or -1 for none.
+    ///
+    /// The row is centred rather than merely brought to the nearest edge, which is what a find
+    /// control does: the match keeps a stable place on screen as you step through matches, and
+    /// arrives with its surroundings visible either side of it.
+    ///
+    /// Scrolling happens when this changes, so a view keeps its own position otherwise and this
+    /// never fights manual scrolling. Set `reveal-token` as well to ask for the same row twice.
+    ///
+    /// Here rather than in a host because the arithmetic needs the row height, the visible
+    /// height and the scroll range, and all three belong to the view.
+    in property <int> reveal-row: -1;
+
+    /// Bumped to ask for `reveal-row` again when it has not changed.
+    ///
+    /// A view is scrolled by whatever else the user does, so "show me the current match again"
+    /// is a real request that the row alone cannot express. Any different value will do; a
+    /// counter is the obvious one.
+    in property <int> reveal-token;
+
+    changed reveal-row => {
+        root.scroll-y = root.scroll-revealing(root.reveal-row);
+    }
+
+    changed reveal-token => {
+        root.scroll-y = root.scroll-revealing(root.reveal-row);
+    }
+
+    // Where to scroll for `row` to sit in the middle of the view.
+    //
+    // Positions are zero at the top and negative going down, so the offset is negated to become
+    // one. Clamped at both ends, which is what makes a row in the first or last screenful settle
+    // short of the middle rather than scrolling past the content.
+    function scroll-revealing(row: int) -> length {
+        row < 0 ? root.scroll-y : clamp(
+            -(row * root.row-height + root.row-height / 2 - i-list.visible-height / 2),
+            -root.max-scroll-y,
+            0px);
+    }
+
     callback line-clicked(DiffLineRef);
     callback gap-expand-requested(GapExpandRequest);
 
