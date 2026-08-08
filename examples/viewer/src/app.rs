@@ -17,32 +17,10 @@ use fxv_diff_slint::{
 use slint::{Brush, Color, ComponentHandle, Global, Model, ModelRc, SharedString, VecModel};
 
 // == Crate
-use crate::find::{diff_matches, log_match, match_ranges, Find, Found, Which, CURRENT, SEARCH};
+use crate::find::{diff_matches, log_match, match_ranges, Find, Found, CURRENT, SEARCH};
+use crate::panes::{Panes, Tab, Which};
 use crate::samples::{Choice, PLAIN_FILES};
 use crate::ui::{self, MainWindow};
-
-/// The row models currently on screen, kept because painting a channel goes through the model
-/// that holds the rows rather than through the widget.
-///
-/// Only the panes the current layout uses are filled: an inline view has no left or right.
-#[derive(Default)]
-pub struct Panes {
-    inline: Option<RowModel>,
-    left: Option<RowModel>,
-    right: Option<RowModel>,
-    plain: Option<RowModel>,
-}
-
-impl Panes {
-    fn get(&mut self, which: Which) -> Option<&mut RowModel> {
-        match which {
-            Which::Inline => self.inline.as_mut(),
-            Which::Left => self.left.as_mut(),
-            Which::Right => self.right.as_mut(),
-            Which::Plain => self.plain.as_mut(),
-        }
-    }
-}
 
 /// Everything a callback needs, in one handle that is cheap to clone into a closure.
 ///
@@ -120,6 +98,11 @@ impl App {
         self.window.unwrap()
     }
 
+    /// Which tab is on screen.
+    fn tab(&self) -> Tab {
+        Tab::at(self.window().get_current_tab())
+    }
+
     /// Which file of the loaded diff the picker is on.
     ///
     /// The picker is flat, so its index names a sample and a file together; only the file is
@@ -194,7 +177,7 @@ impl App {
         let model = RowModel::from_rows(rows);
         window.set_plain_columns(model.longest_line_columns());
         window.set_plain_rows(model.model());
-        self.panes.borrow_mut().plain = Some(model);
+        self.panes.borrow_mut().set_plain(model);
 
         // Rows built from scratch carry no highlights.
         self.search_plain();
@@ -207,12 +190,8 @@ impl App {
         let diff = self.diff.borrow();
 
         {
-            // Whatever was on screen is about to be replaced, and a stale model would paint
-            // rows that no longer exist.
             let mut held = self.panes.borrow_mut();
-            held.inline = None;
-            held.left = None;
-            held.right = None;
+            held.clear_diff();
 
             let Some(file) = diff.files.get(index) else {
                 window.set_status("nothing to show".into());
@@ -246,14 +225,13 @@ impl App {
                 );
                 window.set_left_rows(left.model());
                 window.set_right_rows(right.model());
-                held.left = Some(left);
-                held.right = Some(right);
+                held.set_split(left, right);
             } else {
                 let layout = build_inline(file, &opts);
                 let inline = RowModel::from_rows(render_diff(&layout, file, &render, Pane::Inline));
                 window.set_inline_columns(inline.longest_line_columns());
                 window.set_inline_rows(inline.model());
-                held.inline = Some(inline);
+                held.set_inline(inline);
             }
         }
 
@@ -280,42 +258,21 @@ impl App {
         };
 
         let mut all = Vec::new();
-        {
-            let mut held = self.panes.borrow_mut();
-            // Destructured because three separate `&mut held.field` borrows in one array are
-            // not provably disjoint to the compiler, while these are.
-            let Panes {
-                inline,
-                left,
-                right,
-                ..
-            } = &mut *held;
-
-            for (which, model) in [
-                (Which::Inline, inline),
-                (Which::Left, left),
-                (Which::Right, right),
-            ] {
-                let Some(model) = model else { continue };
-                let found = diff_matches(model, file, &opts, &query, which);
-                all.extend(found.iter().map(|(row, extent)| Found {
-                    which,
-                    row: *row,
-                    extent: extent.clone(),
-                }));
-                model.set_channel(SEARCH, &found);
-            }
+        for (which, model) in self.panes.borrow_mut().diff_panes() {
+            let found = diff_matches(model, file, &opts, &query, which);
+            all.extend(found.iter().map(|(row, extent)| Found {
+                which,
+                row: *row,
+                extent: extent.clone(),
+            }));
+            model.set_channel(SEARCH, &found);
         }
 
         // Read order: down the file, and within a row the left pane before the right.
         all.sort_by_key(|f| (f.row, f.which));
         window.set_diff_match_count(all.len() as i32);
-        {
-            let mut finds = self.finds.borrow_mut();
-            finds.diff = all;
-            finds.at_diff = 0;
-        }
-        self.show_current(false);
+        self.finds.borrow_mut().replace(Tab::Diff, all);
+        self.show_current(Tab::Diff);
     }
 
     /// Paints every match of the search box in the standalone pane.
@@ -337,7 +294,7 @@ impl App {
         let mut found = Vec::new();
         {
             let mut held = self.panes.borrow_mut();
-            let Some(model) = held.plain.as_mut() else {
+            let Some(model) = held.get(Which::Plain) else {
                 return;
             };
 
@@ -363,16 +320,18 @@ impl App {
             model.set_channel(SEARCH, &found);
         }
 
-        self.finds.borrow_mut().plain = found
-            .into_iter()
-            .map(|(row, extent)| Found {
-                which: Which::Plain,
-                row,
-                extent,
-            })
-            .collect();
-        self.finds.borrow_mut().at_plain = 0;
-        self.show_current(true);
+        self.finds.borrow_mut().replace(
+            Tab::Standalone,
+            found
+                .into_iter()
+                .map(|(row, extent)| Found {
+                    which: Which::Plain,
+                    row,
+                    extent,
+                })
+                .collect(),
+        );
+        self.show_current(Tab::Standalone);
     }
 
     /// Moves to another match and brings it into sight, wrapping at either end.
@@ -380,60 +339,23 @@ impl App {
     /// `step` is 1 for the next match and -1 for the previous. Only the tab on screen is
     /// stepped: the other holds a different document, where this position would mean nothing.
     pub fn step_match(&self, step: isize) {
-        let plain = self.window().get_current_tab() == 0;
-        {
-            let mut f = self.finds.borrow_mut();
-            let count = if plain { f.plain.len() } else { f.diff.len() };
-            if count > 0 {
-                let at = if plain { f.at_plain } else { f.at_diff };
-                // Wraps at both ends, so stepping back from the first match reaches the last.
-                let next = (at as isize + step).rem_euclid(count as isize) as usize;
-                if plain {
-                    f.at_plain = next;
-                } else {
-                    f.at_diff = next;
-                }
-            }
-        }
-        self.show_current(plain);
+        let tab = self.tab();
+        self.finds.borrow_mut().advance(tab, step);
+        self.show_current(tab);
     }
 
     /// Paints the current match over the rest and brings it into sight.
-    ///
-    /// Only the named tab's panes are touched. Both tabs are searched on every keystroke, so
-    /// clearing all four here would have each pass undo the other's mark.
-    fn show_current(&self, plain: bool) {
-        let window = self.window();
+    fn show_current(&self, tab: Tab) {
         let finds = self.finds.borrow();
-        let (list, at) = if plain {
-            (&finds.plain, finds.at_plain)
-        } else {
-            (&finds.diff, finds.at_diff)
-        };
-
         let mut held = self.panes.borrow_mut();
+
         // The current match moves from pane to pane, so this tab's panes are cleared before one
         // of them is given the new mark.
-        let here: &[Which] = if plain {
-            &[Which::Plain]
-        } else {
-            &[Which::Inline, Which::Left, Which::Right]
-        };
-        for which in here {
-            if let Some(model) = held.get(*which) {
-                model.set_channel(CURRENT, &[]);
-            }
-        }
+        held.clear_channel(tab, CURRENT);
 
-        let Some(found) = list.get(at) else {
+        let Some(found) = finds.current(tab) else {
             // No matches, so nothing is current and nothing is revealed.
-            if plain {
-                window.set_plain_match_at(0);
-                window.set_reveal_plain_row(-1);
-            } else {
-                window.set_diff_match_at(0);
-                window.set_reveal_diff_row(-1);
-            }
+            self.set_current(tab, 0, -1);
             return;
         };
 
@@ -442,18 +364,27 @@ impl App {
         }
         eprintln!(
             "find: at match {} of {}, row {} of the {:?} pane",
-            at + 1,
-            list.len(),
+            finds.at(tab) + 1,
+            finds.matches(tab).len(),
             found.row,
             found.which
         );
 
-        if plain {
-            window.set_plain_match_at(at as i32 + 1);
-            window.set_reveal_plain_row(found.row as i32);
-        } else {
-            window.set_diff_match_at(at as i32 + 1);
-            window.set_reveal_diff_row(found.row as i32);
+        self.set_current(tab, finds.at(tab) as i32 + 1, found.row as i32);
+    }
+
+    /// Tells the window which match is current and which row to reveal.
+    fn set_current(&self, tab: Tab, at: i32, row: i32) {
+        let window = self.window();
+        match tab {
+            Tab::Standalone => {
+                window.set_plain_match_at(at);
+                window.set_reveal_plain_row(row);
+            }
+            Tab::Diff => {
+                window.set_diff_match_at(at);
+                window.set_reveal_diff_row(row);
+            }
         }
         // Bumped every time, so stepping back to the match already named still scrolls to it
         // after the view has been moved by hand.

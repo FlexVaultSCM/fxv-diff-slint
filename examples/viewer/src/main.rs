@@ -13,6 +13,7 @@ use slint::{ComponentHandle, Timer};
 // == Crate
 mod app;
 mod find;
+mod panes;
 mod samples;
 
 use app::App;

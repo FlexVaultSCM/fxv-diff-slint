@@ -16,6 +16,9 @@ use fxv_diff_slint::{
     map_span, Channel, DisplayColumnExtent, FileDiff, RenderOptions, RowModel, Side,
 };
 
+// == Crate
+use crate::panes::{Tab, Which};
+
 /// The channel this application paints search matches in.
 ///
 /// Numbered from the first the library leaves free rather than picked, so that the library
@@ -28,15 +31,6 @@ pub const SEARCH: Channel = Channel(Channel::FIRST_FREE.0);
 /// set changes only when the query does, while stepping touches a row or two.
 pub const CURRENT: Channel = Channel(Channel::FIRST_FREE.0 + 1);
 
-/// Which pane a match was found in.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Which {
-    Inline,
-    Left,
-    Right,
-    Plain,
-}
-
 /// One match, kept so the find controls can step through them in the order they are read.
 pub struct Found {
     pub which: Which,
@@ -46,14 +40,76 @@ pub struct Found {
 
 /// Every match of the current query, and which one is current.
 ///
-/// The two tabs are searched separately and stepped separately, because they are different
-/// documents and a position in one means nothing in the other.
+/// Each tab is searched and stepped on its own, so every operation names one. Nothing outside
+/// reaches the fields: which of the two pairs a tab means is this type's business, and having
+/// callers branch on it was how the same `if` ended up written in five places.
 #[derive(Default)]
 pub struct Find {
-    pub diff: Vec<Found>,
-    pub plain: Vec<Found>,
-    pub at_diff: usize,
-    pub at_plain: usize,
+    diff: Vec<Found>,
+    plain: Vec<Found>,
+    at_diff: usize,
+    at_plain: usize,
+}
+
+impl Find {
+    /// Replaces everything found in one tab, starting again from its first match.
+    pub fn replace(&mut self, tab: Tab, found: Vec<Found>) {
+        match tab {
+            Tab::Standalone => {
+                self.plain = found;
+                self.at_plain = 0;
+            }
+            Tab::Diff => {
+                self.diff = found;
+                self.at_diff = 0;
+            }
+        }
+    }
+
+    pub fn matches(&self, tab: Tab) -> &[Found] {
+        match tab {
+            Tab::Standalone => &self.plain,
+            Tab::Diff => &self.diff,
+        }
+    }
+
+    /// Which match is current, counted from zero.
+    pub fn at(&self, tab: Tab) -> usize {
+        match tab {
+            Tab::Standalone => self.at_plain,
+            Tab::Diff => self.at_diff,
+        }
+    }
+
+    pub fn current(&self, tab: Tab) -> Option<&Found> {
+        self.matches(tab).get(self.at(tab))
+    }
+
+    /// Steps to another match, wrapping at both ends.
+    ///
+    /// `step` is 1 for the next and -1 for the previous. A tab with no matches does not move,
+    /// since there is nothing to move to and the remainder would divide by zero.
+    pub fn advance(&mut self, tab: Tab, step: isize) {
+        let count = self.matches(tab).len();
+        if count == 0 {
+            return;
+        }
+        // Wraps at both ends. With 51 matches: from 50 forwards, 51 comes back to 0; from 0
+        // backwards, -1 comes back to 50.
+        //
+        // Signed arithmetic, because that -1 cannot be reached in a `usize` at all: 0 - 1
+        // panics in debug and wraps to a colossal number in release.
+        //
+        // `rem_euclid` and not `%`, because Rust's `%` is a remainder that keeps the sign of
+        // the left side, so -1 % 51 is -1 rather than 50. Cast back, that is an index no row
+        // has, and stepping back from the first match would quietly select nothing instead of
+        // the last. `rem_euclid` always lands in 0..count, so the cast is safe to index with.
+        let next = (self.at(tab) as isize + step).rem_euclid(count as isize) as usize;
+        match tab {
+            Tab::Standalone => self.at_plain = next,
+            Tab::Diff => self.at_diff = next,
+        }
+    }
 }
 
 /// Where a query occurs in the lines a diff pane is showing.
