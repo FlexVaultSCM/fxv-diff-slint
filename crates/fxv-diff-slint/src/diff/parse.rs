@@ -16,7 +16,7 @@ use diffy::patch_set::{
 use snafu::{ResultExt, Snafu};
 
 // == Internal Crates
-use crate::model::{
+use super::model::{
     DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind, LineOrigin,
 };
 use crate::text::strip_terminator;
@@ -197,7 +197,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::model::LineEnding;
+    use crate::diff::model::LineEnding;
 
     /// Fixtures are real `git diff` and `diff -u` output, generated from an actual
     /// repository. Hand-writing them invites headers whose line counts do not match their

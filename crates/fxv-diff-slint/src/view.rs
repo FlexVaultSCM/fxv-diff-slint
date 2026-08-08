@@ -19,9 +19,9 @@ use std::rc::Rc;
 use slint::{Model, ModelRc, SharedString, VecModel};
 
 // == Internal Crates
+use crate::diff::layout::{GapState, Layout, Line, Row};
+use crate::diff::model::{FileDiff, LineEnding, LineKind, LineRef};
 use crate::highlight::{DisplayColumnExtent, Highlight, HighlightKind};
-use crate::model::{FileDiff, LineEnding, LineKind, LineRef};
-use crate::rows::{GapState, Layout, Line, Row};
 use crate::span::Side;
 use crate::text::{render_line, RenderOptions};
 use crate::ui;
@@ -464,7 +464,7 @@ impl From<RowKind> for ui::DiffRowKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rows::{build_inline, build_split, RowOptions};
+    use crate::diff::layout::{build_inline, build_split, RowOptions};
     use crate::test_fixtures::{file, shown};
     use std::ops::Range;
 

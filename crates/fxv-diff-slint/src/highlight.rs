@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 
 // == Internal Crates
-use crate::model::FileDiff;
+use crate::diff::model::FileDiff;
 use crate::span::{LineSpan, Side, SourceCharExtent};
 use crate::text::{display_column_of, map_span, RenderOptions};
 use crate::view::DisplayedRow;

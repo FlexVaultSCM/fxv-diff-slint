@@ -36,7 +36,7 @@
 use std::ops::Range;
 
 // == Internal Crates
-use crate::model::{DiffLine, Fetch, FetchState, FileDiff, Hunk, LineKind, LineRef};
+use super::model::{DiffLine, Fetch, FetchState, FileDiff, Hunk, LineKind, LineRef};
 
 /// Why a gap's lines are not on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -428,7 +428,7 @@ impl<'a> GapWalker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{FileChange, FileContent, LineEnding, LineOrigin};
+    use crate::diff::model::{FileChange, FileContent, LineEnding, LineOrigin};
 
     fn line(kind: LineKind, left: Option<u32>, right: Option<u32>, text: &str) -> DiffLine {
         DiffLine {

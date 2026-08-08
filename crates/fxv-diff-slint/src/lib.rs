@@ -31,10 +31,8 @@
 //! highlights and text on a character grid measured from the font, so a system font lookup
 //! would make that grid vary by platform. Setting [`DiffStyle`]'s `font-family` overrides it.
 
+pub mod diff;
 pub mod highlight;
-pub mod model;
-pub mod parse;
-pub mod rows;
 pub mod selection;
 pub mod span;
 #[cfg(test)]
@@ -42,12 +40,16 @@ mod test_fixtures;
 pub mod text;
 pub mod view;
 
-pub use model::{
+// Re-exported flat, so a consumer names a type once rather than tracking which level of the
+// diff it belongs to.
+pub use diff::layout::{
+    build_inline, build_split, GapState, Layout, Line, LinePair, Row, RowOptions,
+};
+pub use diff::model::{
     DiffLine, DiffSet, Fetch, FetchState, FileChange, FileContent, FileDiff, FileMode, Hunk,
     LineEnding, LineKind, LineOrigin,
 };
-pub use parse::{parse_unified_diff, ParseError};
-pub use rows::{build_inline, build_split, GapState, Layout, Line, LinePair, Row, RowOptions};
+pub use diff::parse::{parse_unified_diff, ParseError};
 // A selection travels through three forms: the gesture, the durable spans it resolves to, and
 // the ranges those are painted as. One module owns each.
 pub use highlight::{to_highlights, DisplayColumnExtent, Highlight, HighlightKind};

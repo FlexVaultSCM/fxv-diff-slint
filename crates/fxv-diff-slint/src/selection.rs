@@ -23,7 +23,7 @@
 use std::ops::Range;
 
 // == Internal Crates
-use crate::model::FileDiff;
+use crate::diff::model::FileDiff;
 use crate::span::{LineSpan, SourceCharExtent};
 use crate::text::{source_index_at, RenderOptions};
 use crate::view::DisplayedRow;

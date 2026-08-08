@@ -18,7 +18,7 @@ use std::{iter, ops::Range, str::Chars};
 use unicode_width::UnicodeWidthChar;
 
 // == Internal Crates
-use crate::model::LineEnding;
+use crate::diff::model::LineEnding;
 
 /// How many columns a tab advances to.
 pub const DEFAULT_TAB_WIDTH: usize = 4;
