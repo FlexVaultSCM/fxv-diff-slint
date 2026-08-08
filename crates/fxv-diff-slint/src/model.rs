@@ -195,6 +195,16 @@ impl FileDiff {
         self.set_fetch(right_start, count, FetchState::Failed(why.into()));
     }
 
+    /// Forgets every failed fetch.
+    ///
+    /// A new attempt supersedes the reasons old ones gave, and leaving them behind means a gap
+    /// reporting a failure that nobody is still waiting on. Whether to call this is the host's
+    /// choice: nothing here decides when a failure has stopped being true.
+    pub fn clear_failed_fetches(&mut self) {
+        self.fetches
+            .retain(|f| !matches!(f.state, FetchState::Failed(_)));
+    }
+
     /// Forgets a fetch without filling it in, returning the gap to plain hidden lines.
     pub fn fetch_abandoned(&mut self, right_start: u32, count: u32) {
         self.fetches

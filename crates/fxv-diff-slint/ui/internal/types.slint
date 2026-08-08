@@ -75,6 +75,12 @@ export struct DiffRow {
     // How many lines this gap hides. Only meaningful when kind is gap.
     hidden-count: int,
     gap-state: DiffGapState,
+    // The run of a gap being fetched, numbered on the right. A zero count means nothing is.
+    // A view compares this against what each of its controls would ask for, to know which one
+    // to show as working. Carried in the data rather than remembered by the row, because the
+    // row is rebuilt the moment the fetch is recorded.
+    busy-start: int,
+    busy-count: int,
     // Ranges to paint behind the text. Empty on most rows.
     highlights: [DiffHighlight],
 }

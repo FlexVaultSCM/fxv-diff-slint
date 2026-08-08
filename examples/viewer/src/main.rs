@@ -7,7 +7,7 @@ use std::time;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    build_inline, build_side_by_side, parse_unified_diff, DiffSet, FileDiff, RenderOptions,
+    build_inline, build_split, parse_unified_diff, DiffSet, FileDiff, Pane, RenderOptions,
     RowModel, RowOptions,
 };
 
@@ -99,8 +99,10 @@ fn main() -> Result<(), slint::PlatformError> {
     {
         let window = window.as_weak();
         let diff = diff.clone();
-        // Kept alive past the closure that starts it, since a dropped Timer never fires.
-        let pending = Rc::new(Timer::default());
+        // One timer per request, kept alive past the closure that started it, since a dropped
+        // Timer never fires. Sharing one would cancel whichever gap was already waiting and
+        // leave it saying "loading" for good.
+        let pending: Rc<RefCell<Vec<Timer>>> = Rc::new(RefCell::new(Vec::new()));
         // The sample picker lists the file's one diff when there is one, so its index no longer
         // selects among the built-in samples.
         let from_file = from_file.is_some();
@@ -112,6 +114,8 @@ fn main() -> Result<(), slint::PlatformError> {
             let count = request.count.max(0) as u32;
 
             if let Some(file) = diff.borrow_mut().files.get_mut(index) {
+                // A new attempt supersedes whatever the last one said.
+                file.clear_failed_fetches();
                 file.fetch_started(start, count);
             }
             rebuild_rows(&w, &diff.borrow(), index);
@@ -122,7 +126,8 @@ fn main() -> Result<(), slint::PlatformError> {
             let window = w.as_weak();
             let diff = diff.clone();
             let left = request.left_start.max(1) as u32;
-            pending.start(
+            let timer = Timer::default();
+            timer.start(
                 slint::TimerMode::SingleShot,
                 time::Duration::from_millis(600),
                 move || {
@@ -138,6 +143,7 @@ fn main() -> Result<(), slint::PlatformError> {
                     rebuild_rows(&w, &diff.borrow(), index);
                 },
             );
+            pending.borrow_mut().push(timer);
         });
     }
 
@@ -210,26 +216,32 @@ fn rebuild_rows(window: &MainWindow, diff: &DiffSet, index: usize) {
     }
     window.set_status(SharedString::new());
 
-    // Rebuilt rather than restyled: making whitespace visible changes the text itself, so the
-    // rows have to be rendered again.
-    let opts = RowOptions {
-        render: RenderOptions {
-            show_space_tabs: window.get_whitespace_mode() >= 1,
-            show_line_endings: window.get_whitespace_mode() >= 2,
-            ..Default::default()
-        },
+    // Whether whitespace is shown changes how a line reads, not where it sits, so it belongs
+    // to the rendering rather than to the layout.
+    let render = RenderOptions {
+        show_space_tabs: window.get_whitespace_mode() >= 1,
+        show_line_endings: window.get_whitespace_mode() >= 2,
         ..Default::default()
     };
-    // Only the layout on screen is built. Building both would mean rendering the whole diff
-    // three times over on every file change and every toggle, for two row sets nobody sees.
+    let opts = RowOptions::default();
+
+    // Only the arrangement on screen is laid out. Building both would flatten the whole diff
+    // twice over on every file change and every toggle, for rows nobody sees.
     if window.get_side_by_side() {
-        let split = build_side_by_side(file, &opts);
-        // One column count for both panes; see SideBySideRows::longest_line_columns.
-        window.set_split_columns(split.longest_line_columns() as i32);
-        window.set_left_rows(RowModel::new(split.left).model());
-        window.set_right_rows(RowModel::new(split.right).model());
+        let layout = build_split(file, &opts);
+        let left = RowModel::new(&layout, file, &render, Pane::Left);
+        let right = RowModel::new(&layout, file, &render, Pane::Right);
+        // One count for both panes, or their scrollable widths differ and the sides drift.
+        // Each pane only measured its own side, and the widest line may be on either.
+        window.set_split_columns(
+            left.longest_line_columns()
+                .max(right.longest_line_columns()),
+        );
+        window.set_left_rows(left.model());
+        window.set_right_rows(right.model());
     } else {
-        let inline = RowModel::new(build_inline(file, &opts));
+        let layout = build_inline(file, &opts);
+        let inline = RowModel::new(&layout, file, &render, Pane::Inline);
         window.set_inline_columns(inline.longest_line_columns());
         window.set_inline_rows(inline.model());
     }

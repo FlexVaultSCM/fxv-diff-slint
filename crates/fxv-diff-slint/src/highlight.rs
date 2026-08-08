@@ -18,9 +18,9 @@ use std::ops::Range;
 
 // == Internal Crates
 use crate::model::FileDiff;
-use crate::rows::Row;
 use crate::span::{LineSpan, Side, SourceCharExtent};
 use crate::text::{display_column_of, map_span, RenderOptions};
+use crate::view::DisplayedRow;
 
 /// Why a range is drawn, which is what picks the colour.
 ///
@@ -70,16 +70,15 @@ pub struct Highlight {
 /// host's marks stay put while something else changes. It moves to an index built once per
 /// row model and kept.
 pub fn to_highlights(
-    rows: &[Row],
+    rows: &[DisplayedRow],
     file: &FileDiff,
     opts: &RenderOptions,
-    context_side: Side,
     spans: &[LineSpan],
     kind: HighlightKind,
 ) -> Vec<(usize, Highlight)> {
     let mut by_line: HashMap<(Side, u32), usize> = HashMap::new();
     for (index, row) in rows.iter().enumerate() {
-        if let Some((side, line)) = row.file_line(context_side) {
+        if let Some((side, line)) = row.id {
             by_line.entry((side, line)).or_insert(index);
         }
     }
@@ -119,9 +118,9 @@ pub fn to_highlights(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rows::{build_inline, RowOptions};
     use crate::selection::{to_spans, Caret, Selection};
-    use crate::test_fixtures::{file, removed_row, rows};
+    use crate::test_fixtures::{file, inline, removed_row, rows};
+    use crate::view::{Pane, RowModel};
 
     fn caret(row: usize, column: u32) -> Caret {
         Caret { row, column }
@@ -140,23 +139,9 @@ mod tests {
             focus: caret(2, 9),
         };
 
-        let stored = to_spans(&r, &f, &opts, Side::Right, &selection);
-        let drawn_live = to_highlights(
-            &r,
-            &f,
-            &opts,
-            Side::Right,
-            &stored,
-            HighlightKind::Selection,
-        );
-        let drawn_again = to_highlights(
-            &r,
-            &f,
-            &opts,
-            Side::Right,
-            &stored,
-            HighlightKind::Selection,
-        );
+        let stored = to_spans(&r, &f, &opts, &selection);
+        let drawn_live = to_highlights(&r, &f, &opts, &stored, HighlightKind::Selection);
+        let drawn_again = to_highlights(&r, &f, &opts, &stored, HighlightKind::Selection);
 
         assert!(
             !drawn_live.is_empty(),
@@ -166,51 +151,44 @@ mod tests {
     }
 
     #[test]
-    fn a_stored_selection_still_lands_after_the_rows_are_rebuilt() {
-        // Row indices are not part of the description, so rebuilding the rows with different
-        // options must not move a stored span.
+    fn a_stored_span_survives_the_rows_being_drawn_differently() {
+        // The layout is the same either way: showing whitespace changes how a line reads, not
+        // where it sits. So the same entries are rendered twice, and a span reported from one
+        // rendering still lands on the same row in the other, at whatever columns that
+        // rendering puts it.
         let f = file();
+        let layout = inline(&f);
         let plain = RenderOptions::default();
         let visible = RenderOptions {
             show_space_tabs: true,
             ..RenderOptions::default()
         };
 
-        let before = build_inline(&f, &RowOptions::default()).rows;
+        let before = RowModel::new(&layout, &f, &plain, Pane::Inline)
+            .rows()
+            .to_vec();
+        let row = removed_row(&before);
         let spans = to_spans(
             &before,
             &f,
             &plain,
-            Side::Right,
             &Selection {
-                anchor: caret(1, 4),
-                focus: caret(1, 7),
+                anchor: caret(row, 4),
+                focus: caret(row, 7),
             },
         );
 
-        let after = build_inline(
-            &f,
-            &RowOptions {
-                render: visible.clone(),
-                ..RowOptions::default()
-            },
-        )
-        .rows;
-        let drawn = to_highlights(
-            &after,
-            &f,
-            &visible,
-            Side::Right,
-            &spans,
-            HighlightKind::Marked,
-        );
+        let after = RowModel::new(&layout, &f, &visible, Pane::Inline)
+            .rows()
+            .to_vec();
+        let drawn = to_highlights(&after, &f, &visible, &spans, HighlightKind::Marked);
 
         assert_eq!(
             drawn.len(),
             1,
             "the span still names a line that is on screen"
         );
-        assert_eq!(drawn[0].0, 1, "and the same row");
+        assert_eq!(drawn[0].0, row, "and the same row");
     }
 
     #[test]
@@ -227,7 +205,6 @@ mod tests {
             &r,
             &f,
             &RenderOptions::default(),
-            Side::Right,
             &spans,
             HighlightKind::Marked,
         );
@@ -248,7 +225,7 @@ mod tests {
             line: 11,
             extent: SourceCharExtent::ToEnd { from: 1 },
         }];
-        let drawn = to_highlights(&r, &f, &opts, Side::Right, &spans, HighlightKind::Marked);
+        let drawn = to_highlights(&r, &f, &opts, &spans, HighlightKind::Marked);
 
         assert_eq!(drawn.len(), 1);
         assert_eq!(drawn[0].0, row);

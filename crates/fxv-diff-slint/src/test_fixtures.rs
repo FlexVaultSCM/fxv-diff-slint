@@ -10,7 +10,9 @@ use std::fs;
 // == Internal Crates
 use crate::model::FileDiff;
 use crate::parse::parse_unified_diff;
-use crate::rows::{build_inline, Row, RowKind, RowOptions};
+use crate::rows::{build_inline, build_split, Layout, RowOptions};
+use crate::text::RenderOptions;
+use crate::view::{DisplayedRow, Pane, RowKind, RowModel};
 
 pub fn file() -> FileDiff {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tab_line.diff");
@@ -21,12 +23,28 @@ pub fn file() -> FileDiff {
         .remove(0)
 }
 
-pub fn rows(file: &FileDiff) -> Vec<Row> {
-    build_inline(file, &RowOptions::default()).rows
+pub fn inline(file: &FileDiff) -> Layout {
+    build_inline(file, &RowOptions::default())
+}
+
+pub fn split(file: &FileDiff) -> Layout {
+    build_split(file, &RowOptions::default())
+}
+
+/// One pane's worth of rendered rows, which is what the selection and highlight code works on.
+pub fn shown(layout: &Layout, file: &FileDiff, pane: Pane) -> Vec<DisplayedRow> {
+    RowModel::new(layout, file, &RenderOptions::default(), pane)
+        .rows()
+        .to_vec()
+}
+
+/// The inline pane of the fixture, the usual starting point.
+pub fn rows(file: &FileDiff) -> Vec<DisplayedRow> {
+    shown(&inline(file), file, Pane::Inline)
 }
 
 /// The removed line, whose source begins with a tab.
-pub fn removed_row(rows: &[Row]) -> usize {
+pub fn removed_row(rows: &[DisplayedRow]) -> usize {
     rows.iter()
         .position(|r| r.kind == RowKind::Removed)
         .expect("the fixture removes a line")

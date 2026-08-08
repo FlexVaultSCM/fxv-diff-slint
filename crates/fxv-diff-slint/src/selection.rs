@@ -24,9 +24,9 @@ use std::ops::Range;
 
 // == Internal Crates
 use crate::model::FileDiff;
-use crate::rows::{Row, RowKind};
-use crate::span::{LineSpan, Side, SourceCharExtent};
+use crate::span::{LineSpan, SourceCharExtent};
 use crate::text::{source_index_at, RenderOptions};
+use crate::view::DisplayedRow;
 
 /// One end of a selection, in the coordinates the view works in.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -72,39 +72,31 @@ impl Selection {
     }
 }
 
-/// Whether a row can hold part of a selection.
-///
-/// Fillers can: they are a real position in a pane, just an empty one, and a drag passing over
-/// one should not stop. They contribute no span, having no line behind them.
-fn selectable(row: &Row) -> bool {
-    !matches!(row.kind, RowKind::Gap | RowKind::Header)
-}
-
 /// The stretch of rows a selection starting at `row` may cover.
 ///
 /// A selection is confined to one such stretch. Crossing a gap would mean either dropping the
 /// hidden lines when the selection was resolved, so the reported range would not match what was
 /// highlighted, or fetching them, which would make selecting have side effects. Refusing to
 /// cross avoids choosing between those. Expand the gap first, then select.
-pub fn run_bounds(rows: &[Row], row: usize) -> Range<usize> {
-    if rows.get(row).is_none_or(|r| !selectable(r)) {
+pub fn run_bounds(rows: &[DisplayedRow], row: usize) -> Range<usize> {
+    if rows.get(row).is_none_or(|r| !r.selectable) {
         return row..row;
     }
 
     let start = rows[..row]
         .iter()
-        .rposition(|r| !selectable(r))
+        .rposition(|r| !r.selectable)
         .map_or(0, |i| i + 1);
     let end = rows[row..]
         .iter()
-        .position(|r| !selectable(r))
+        .position(|r| !r.selectable)
         .map_or(rows.len(), |i| row + i);
 
     start..end
 }
 
 /// Pulls a target row back into the run the selection started in.
-pub fn clamp_to_run(rows: &[Row], anchor_row: usize, target: usize) -> usize {
+pub fn clamp_to_run(rows: &[DisplayedRow], anchor_row: usize, target: usize) -> usize {
     let run = run_bounds(rows, anchor_row);
     if run.is_empty() {
         return anchor_row;
@@ -117,10 +109,9 @@ pub fn clamp_to_run(rows: &[Row], anchor_row: usize, target: usize) -> usize {
 /// Rows that stand for no line contribute nothing, so a selection dragged across a filler
 /// simply skips it rather than reporting an empty range nobody can act on.
 pub fn to_spans(
-    rows: &[Row],
+    rows: &[DisplayedRow],
     file: &FileDiff,
     opts: &RenderOptions,
-    context_side: Side,
     selection: &Selection,
 ) -> Vec<LineSpan> {
     if selection.is_empty() {
@@ -131,7 +122,7 @@ pub fn to_spans(
     let mut spans = Vec::new();
     let last = end.row.min(rows.len().saturating_sub(1));
     for (index, row) in rows.iter().enumerate().take(last + 1).skip(start.row) {
-        let (Some(source), Some((side, line))) = (row.source, row.file_line(context_side)) else {
+        let (Some(source), Some((side, line))) = (row.source, row.id) else {
             continue;
         };
         let Some(text) = file.line(source).map(|l| l.text.as_str()) else {
@@ -166,8 +157,9 @@ pub fn to_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::rows::{build_side_by_side, RowOptions};
-    use crate::test_fixtures::{file, removed_row, rows};
+    use crate::span::Side;
+    use crate::test_fixtures::{file, removed_row, rows, shown, split};
+    use crate::view::{Pane, RowKind};
 
     fn caret(row: usize, column: u32) -> Caret {
         Caret { row, column }
@@ -183,7 +175,7 @@ mod tests {
             focus: caret(row, 7),
         };
 
-        let spans = to_spans(&r, &f, &RenderOptions::default(), Side::Right, &selection);
+        let spans = to_spans(&r, &f, &RenderOptions::default(), &selection);
         assert_eq!(spans.len(), 1);
         assert_eq!(spans[0].side, Side::Left);
         assert_eq!(spans[0].line, 11);
@@ -202,7 +194,7 @@ mod tests {
             focus: caret(row, 7),
         };
 
-        let spans = to_spans(&r, &f, &RenderOptions::default(), Side::Right, &selection);
+        let spans = to_spans(&r, &f, &RenderOptions::default(), &selection);
         assert_eq!(
             spans[0].extent,
             SourceCharExtent::Columns(1..4),
@@ -241,20 +233,18 @@ mod tests {
     #[test]
     fn a_pane_names_unchanged_lines_by_its_own_side() {
         let f = file();
-        let split = build_side_by_side(&f, &RowOptions::default());
+        let layout = split(&f);
+        let left = shown(&layout, &f, Pane::Left);
         let opts = RenderOptions::default();
 
-        let context = split
-            .left
-            .rows
+        let context = left
             .iter()
             .position(|r| r.kind == RowKind::Context)
             .unwrap();
         let spans = to_spans(
-            &split.left.rows,
+            &left,
             &f,
             &opts,
-            Side::Left,
             &Selection {
                 anchor: caret(context, 0),
                 focus: caret(context, 5),
@@ -280,7 +270,6 @@ mod tests {
             &r,
             &f,
             &RenderOptions::default(),
-            Side::Right,
             &Selection {
                 anchor: caret(context, 0),
                 focus: caret(context, 5),
@@ -307,7 +296,6 @@ mod tests {
             &r,
             &f,
             &RenderOptions::default(),
-            Side::Right,
             &Selection {
                 anchor: caret(removed, 2),
                 focus: caret(added, 9),
@@ -339,7 +327,6 @@ mod tests {
             &r,
             &f,
             &RenderOptions::default(),
-            Side::Right,
             &Selection {
                 anchor: caret(first, 2),
                 focus: caret(last, 1),
@@ -382,7 +369,6 @@ mod tests {
             &r,
             &f,
             &RenderOptions::default(),
-            Side::Right,
             &Selection {
                 anchor: caret(first, 3),
                 focus: caret(last, 1),
@@ -409,7 +395,6 @@ mod tests {
             &r,
             &f,
             &RenderOptions::default(),
-            Side::Right,
             &Selection {
                 anchor: caret(row, 4),
                 focus: caret(row, 7),
@@ -434,8 +419,8 @@ mod tests {
         };
 
         assert_eq!(
-            to_spans(&r, &f, &opts, Side::Right, &forwards),
-            to_spans(&r, &f, &opts, Side::Right, &backwards)
+            to_spans(&r, &f, &opts, &forwards),
+            to_spans(&r, &f, &opts, &backwards)
         );
     }
 
@@ -444,13 +429,6 @@ mod tests {
         let f = file();
         let r = rows(&f);
         let at = caret(1, 4);
-        assert!(to_spans(
-            &r,
-            &f,
-            &RenderOptions::default(),
-            Side::Right,
-            &Selection::at(at)
-        )
-        .is_empty());
+        assert!(to_spans(&r, &f, &RenderOptions::default(), &Selection::at(at)).is_empty());
     }
 }

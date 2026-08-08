@@ -191,6 +191,11 @@ pub fn render_line(source: &str, ending: LineEnding, opts: &RenderOptions) -> (S
 ///
 /// Still depends on the options: showing line endings adds columns, and the tab width decides
 /// how far a tab reaches. Cheap to redo when they change, since nothing is allocated.
+///
+/// Nothing in the crate calls this yet. Rows are rendered up front and report their own width,
+/// so the only measuring is of text that already exists. It is kept because building lines
+/// only for the rows on screen needs a width for the ones that are not, and that is the shape
+/// the row pipeline is heading for.
 pub fn measure_line(source: &str, ending: LineEnding, opts: &RenderOptions) -> usize {
     let mut columns = 0;
     for (cell, _) in char_cells(source, opts) {

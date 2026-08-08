@@ -15,9 +15,11 @@ import { DiffRow, DiffRowKind, DiffSide, DiffLineRef, GapExpandRequest } from "t
 export component DiffView {
     in property <[DiffRow]> rows;
     in property <bool> show-line-numbers: true;
-    // Which side's line numbers the gutter carries. A pane of a side-by-side view sets this to
-    // its own side; a single inline view leaves it showing both.
-    in property <DiffSide> number-side: DiffSide.both;
+    /// How many number columns the gutter carries, filled from each row's first number.
+    ///
+    /// A pane showing one file sets one. An inline view of a diff leaves it at two, because an
+    /// unchanged line has a number in each file and both are worth reading.
+    in property <int> gutter-columns: 2;
     // Turned off when something outside drives the horizontal scrolling, so a side-by-side
     // view can show one bar for both panes instead of two that always agree.
     in property <bool> show-horizontal-scrollbar: true;
@@ -29,6 +31,14 @@ export component DiffView {
     /// way for this view to know whether it can. A diff with nothing behind it still shows its
     /// gaps, so the file does not read as continuous, but without controls that lead nowhere.
     in property <bool> gap-expandable: false;
+    /// Whether this view spells a gap out, or just leaves a band where one is. One pane of a
+    /// split carries the detail; the other would only repeat it in half the width.
+    in property <bool> gap-details: true;
+    /// Whether a fetch is running, which blocks every gap's controls until it answers.
+    ///
+    /// Set by the host, because only the host knows whether it can serve more than one at a
+    /// time. Left false, each gap still blocks its own controls while it waits.
+    in property <bool> gap-busy: false;
 
     // How many columns the longest line in `rows` occupies. This is a property of the content,
     // not of the viewport.
@@ -51,8 +61,8 @@ export component DiffView {
     out property <length> row-height: i-metrics.row-height;
     out property <length> content-width: root.longest-line-columns * i-metrics.advance;
 
-    // One number column per side shown, four digits wide, with padding outside and between.
-    out property <int> columns-shown: root.number-side == DiffSide.both ? 2 : 1;
+    // Four digits per column, with padding outside and between.
+    out property <int> columns-shown: max(1, root.gutter-columns);
     out property <length> gutter-width: root.show-line-numbers
         ? root.columns-shown * 4 * i-metrics.advance
             + (root.columns-shown + 1) * DiffStyle.gutter-padding
@@ -112,10 +122,12 @@ export component DiffView {
             scroll-x: root.scroll-x;
             visible-width: i-list.visible-width;
             show-line-numbers: root.show-line-numbers;
-            number-side: root.number-side;
+            gutter-columns: root.gutter-columns;
 
             expand-step: root.gap-expand-step;
             gap-expandable: root.gap-expandable;
+            gap-details: root.gap-details;
+            gap-busy: root.gap-busy;
 
             expand(left, right, count) => {
                 root.gap-expand-requested({

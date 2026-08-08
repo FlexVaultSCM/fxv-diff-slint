@@ -1,6 +1,5 @@
-import { Spinner } from "std-widgets.slint";
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind, DiffGapState, DiffHighlightKind, DiffSide } from "types.slint";
+import { DiffRow, DiffRowKind, DiffGapState, DiffHighlightKind } from "types.slint";
 import { GapButton } from "gap-button.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
@@ -21,8 +20,11 @@ export component DiffRowView {
     /// How much of the list is on screen at once.
     in property <length> visible-width;
     in property <bool> show-line-numbers: true;
-    // Which side's numbers to show. A pane of a side-by-side view shows only its own.
-    in property <DiffSide> number-side: DiffSide.both;
+    /// How many number columns the gutter draws, filled from the row's first number onward.
+    ///
+    /// A pane showing one file draws one; an inline view of a diff draws two, since an
+    /// unchanged line has a number in each file.
+    in property <int> gutter-columns: 2;
 
     callback clicked();
     /// Asks for `count` lines starting at the given line on each side.
@@ -31,6 +33,14 @@ export component DiffRowView {
     in property <int> expand-step: 20;
     /// Whether a gap offers to open at all. Off for a diff nobody can fetch lines for.
     in property <bool> gap-expandable: false;
+    /// Whether some fetch is running anywhere in this view, which blocks every gap's controls.
+    in property <bool> gap-busy: false;
+    /// Whether this pane spells a gap out, or just leaves a band where one is.
+    ///
+    /// A gap is one thing that happens to be drawn twice when two panes show the same diff.
+    /// Saying so twice reads as two gaps, and repeating a failure message in half the width
+    /// truncates it. So one pane carries the detail and the other only marks the place.
+    in property <bool> gap-details: true;
 
     // Rows that stand for content have line numbers; the rest do not. A filler has none
     // either, but it is still a line's worth of one side of the diff.
@@ -56,13 +66,23 @@ export component DiffRowView {
     out property <bool> gap-failed: root.data.kind == DiffRowKind.gap
         && root.data.gap-state == DiffGapState.failed;
 
-    // The two affordances, as opposed to the two states above. Both need somewhere for the
-    // lines to come from, so both are gated on the view being expandable at all; the states
-    // are not, because a gap that says it is loading is reporting rather than offering.
-    out property <bool> gap-openable: root.data.kind == DiffRowKind.gap
-        && root.data.gap-state == DiffGapState.hidden
-        && root.gap-expandable;
-    out property <bool> gap-retryable: root.gap-failed && root.gap-expandable;
+    // Controls are drawn whenever a gap could be opened at all, in every state. A failure
+    // leaves them exactly as they were, so retrying is clicking the same control again rather
+    // than hunting for a different one, and the row never changes shape underneath a pointer.
+    out property <bool> gap-openable: root.data.kind == DiffRowKind.gap && root.gap-expandable;
+    // Only this gap's controls stop while this gap is fetching. Another gap is another
+    // request about other lines, and blocking it would be this row speaking for rows it knows
+    // nothing about. A host that can only serve one at a time sets `gap-busy` to say so.
+    out property <bool> gap-blocked: root.gap-waiting || root.gap-busy;
+
+    // What each control would ask for, so the one that is working can be told from the run the
+    // model says is in flight. Derived rather than remembered: the row is rebuilt the moment
+    // the fetch is recorded, which throws away anything it was holding.
+    out property <int> down-start: root.data.right-line;
+    out property <int> up-start: root.data.right-line + root.data.hidden-count - root.step;
+    function working(start: int, count: int) -> bool {
+        root.gap-waiting && root.data.busy-start == start && root.data.busy-count == count
+    }
 
     // Declares how far the list can scroll sideways, and does nothing else.
     //
@@ -146,7 +166,7 @@ export component DiffRowView {
     // A gap can be opened a piece at a time from either end, which is what makes a large one
     // usable: a few lines of extra context is the common need, not the whole span. When the
     // gap is no larger than a step there is only one thing to do, so only one control shows.
-    if root.data.kind == DiffRowKind.gap: HorizontalLayout {
+    if root.data.kind == DiffRowKind.gap && root.gap-details: HorizontalLayout {
         x: -root.scroll-x + DiffStyle.gutter-padding;
         y: 0;
         height: parent.height;
@@ -157,6 +177,8 @@ export component DiffRowView {
         if root.gap-openable && root.stepped: GapButton {
             icon: DiffStyle.gap-expand-down-icon;
             label: root.step;
+            busy: root.working(root.down-start, root.step);
+            blocked: root.gap-blocked;
             // Opens the top of the gap, next to the hunk above it.
             clicked => {
                 root.expand(root.data.left-line, root.data.right-line, root.step);
@@ -166,6 +188,8 @@ export component DiffRowView {
         if root.gap-openable && root.stepped: GapButton {
             icon: DiffStyle.gap-expand-up-icon;
             label: root.step;
+            busy: root.working(root.up-start, root.step);
+            blocked: root.gap-blocked;
             // Opens the bottom, next to the hunk below.
             clicked => {
                 root.expand(
@@ -178,26 +202,8 @@ export component DiffRowView {
         if root.gap-openable: GapButton {
             icon: DiffStyle.gap-expand-all-icon;
             label: root.data.hidden-count;
-            clicked => {
-                root.expand(
-                    root.data.left-line, root.data.right-line, root.data.hidden-count);
-            }
-        }
-
-        // A gap being fetched offers nothing to click: the run it covers is spoken for until
-        // the lines arrive or the attempt fails.
-        if root.gap-waiting: Spinner {
-            // Square, and short of the full row so it does not touch the rows above and below.
-            height: parent.height - 4px;
-            width: self.height;
-            indeterminate: true;
-        }
-
-        // A run that failed is still exactly the run that was asked for, so retrying is one
-        // click on the same request rather than a fresh choice of how much to open.
-        if root.gap-retryable: GapButton {
-            icon: DiffStyle.gap-retry-icon;
-            label: "retry";
+            busy: root.working(root.down-start, root.data.hidden-count);
+            blocked: root.gap-blocked;
             clicked => {
                 root.expand(
                     root.data.left-line, root.data.right-line, root.data.hidden-count);
@@ -208,6 +214,9 @@ export component DiffRowView {
             // How many lines the gap stands for and what is happening to them. `data.text` is
             // the hunk heading, or the reason a fetch failed, so this reads as
             // "12 hidden    fn thing()" or "12 could not be read    no such revision".
+            // Kept at its natural width so a long failure message runs past the pane edge and
+            // is clipped there, rather than being squeezed into whatever the layout has left.
+            width: self.preferred-width;
             text: root.data.hidden-count
                 + (root.gap-waiting ? " loading"
                     : root.gap-failed ? " could not be read"
@@ -232,9 +241,13 @@ export component DiffRowView {
             padding-right: DiffStyle.gutter-padding;
             spacing: DiffStyle.gutter-padding;
 
-            if root.number-side != DiffSide.right: Text {
+            if root.gutter-columns >= 1: i-number := Text {
                 width: 4 * root.advance;
-                // Zero means this row has no line on that side. Gaps and fillers do carry
+                // Read back by the widget tests, since what a gutter drew is otherwise
+                // invisible from outside.
+                accessible-role: text;
+                accessible-label: self.text;
+                // Zero means this row has no number in that column. Gaps and fillers do carry
                 // numbers, since expanding a gap has to know where to read from, but showing
                 // one against a blank row would misdescribe it.
                 text: root.numbered && root.data.left-line > 0 ? root.data.left-line : "";
@@ -245,8 +258,10 @@ export component DiffRowView {
                 color: DiffStyle.gutter-text-color;
             }
 
-            if root.number-side != DiffSide.left: Text {
+            if root.gutter-columns >= 2: i-number-2 := Text {
                 width: 4 * root.advance;
+                accessible-role: text;
+                accessible-label: self.text;
                 text: root.numbered && root.data.right-line > 0 ? root.data.right-line : "";
                 horizontal-alignment: right;
                 vertical-alignment: center;

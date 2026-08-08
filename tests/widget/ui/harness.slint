@@ -10,6 +10,7 @@ export component Harness inherits Window {
     in property <[DiffRow]> rows;
     in property <int> longest-line-columns: 120;
     in property <bool> gap-expandable: false;
+    in property <int> gutter-columns: 2;
 
     in-out property <length> scroll-x <=> i-view.scroll-x;
     in-out property <length> scroll-y <=> i-view.scroll-y;
@@ -28,7 +29,10 @@ export component Harness inherits Window {
     out property <int> asked-right: -1;
     out property <int> asked-count: -1;
 
-    width: 800px;
+    // Settable so a test can put the viewport either side of the content's width.
+    in-out property <length> view-width: 800px;
+
+    width: root.view-width;
     height: 400px;
 
     VerticalLayout {
@@ -36,6 +40,7 @@ export component Harness inherits Window {
             rows: root.rows;
             longest-line-columns: root.longest-line-columns;
             gap-expandable: root.gap-expandable;
+            gutter-columns: root.gutter-columns;
 
             gap-expand-requested(request) => {
                 root.asked-left = request.left-start;

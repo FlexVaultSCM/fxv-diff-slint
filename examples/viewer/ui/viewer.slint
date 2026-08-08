@@ -155,7 +155,7 @@ export component MainWindow inherits Window {
                     rows: root.left-rows;
                     longest-line-columns: root.split-columns;
                     gap-expandable: root.gap-expandable;
-                    number-side: DiffSide.left;
+                            gutter-columns: 1;
                     scroll-y <=> root.shared-scroll-y;
                     scroll-x <=> root.shared-scroll-x;
                             // One bar below drives both panes.
@@ -176,8 +176,10 @@ export component MainWindow inherits Window {
                 i-right := DiffView {
                     rows: root.right-rows;
                     longest-line-columns: root.split-columns;
-                    gap-expandable: root.gap-expandable;
-                    number-side: DiffSide.right;
+                    // The left pane carries the gap's controls and message for both.
+                    gap-expandable: false;
+                    gap-details: false;
+                    gutter-columns: 1;
                     scroll-y <=> root.shared-scroll-y;
                     scroll-x <=> root.shared-scroll-x;
                             show-horizontal-scrollbar: false;

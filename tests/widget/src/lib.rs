@@ -8,14 +8,14 @@
 use std::time;
 
 // == Std
+use std::cell::Cell;
 use std::ops::Range;
 
 // == External Crates
-use slint::SharedString;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    DisplayColumnExtent, GapState, Highlight, HighlightKind, Row, RowKind, RowModel, Rows,
+    DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind, RenderOptions, RowModel, Side,
 };
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
@@ -32,6 +32,22 @@ pub use ui::{Harness, PairedHarness};
 /// window, so there is something to scroll sideways.
 pub const COLUMNS: u32 = 200;
 
+thread_local! {
+    static BACKEND: Cell<bool> = const { Cell::new(false) };
+}
+
+/// Starts the testing backend, once per thread.
+///
+/// It sets a per-thread platform and panics if one is already set, so a test wanting two
+/// harnesses to compare them cannot simply call it twice.
+fn backend() {
+    BACKEND.with(|started| {
+        if !started.replace(true) {
+            i_slint_backend_testing::init_no_event_loop();
+        }
+    });
+}
+
 /// A harness with `count` plain context rows.
 ///
 /// Rows are built here rather than parsed from a diff because these tests care about how many
@@ -40,15 +56,43 @@ pub const COLUMNS: u32 = 200;
 /// Each test gets its own backend. `init_no_event_loop` sets a per-thread platform and panics
 /// if one is already set, so it is called once per test rather than once per process.
 pub fn harness(count: u32) -> Harness {
-    i_slint_backend_testing::init_no_event_loop();
+    backend();
     let harness = Harness::new().expect("creating the harness window");
     show(&harness, count);
     harness
 }
 
+/// A harness whose gutter draws `columns` number columns.
+pub fn harness_with_columns(count: u32, columns: i32) -> Harness {
+    harness_with_rows(context_rows(count), columns)
+}
+
+/// A harness over rows supplied directly, for cases the plain fixture cannot express.
+pub fn harness_with_rows(rows: Vec<DisplayedRow>, columns: i32) -> Harness {
+    backend();
+    let harness = Harness::new().expect("creating the harness window");
+    harness.set_gutter_columns(columns);
+    let view = RowModel::from_rows(rows);
+    harness.set_longest_line_columns(view.longest_line_columns());
+    harness.set_rows(view.model());
+    harness
+}
+
+/// Rows carrying a number in both gutter slots, as an unchanged line of a diff does.
+pub fn two_numbered_rows(count: u32) -> Vec<DisplayedRow> {
+    context_rows(count)
+        .into_iter()
+        .enumerate()
+        .map(|(i, mut row)| {
+            row.numbers[1] = Some(i as u32 + 100);
+            row
+        })
+        .collect()
+}
+
 /// Replaces what the harness is showing, as switching to another file does.
 pub fn show(harness: &Harness, count: u32) {
-    let view = RowModel::new(context_rows(count));
+    let view = RowModel::from_rows(context_rows(count));
     harness.set_longest_line_columns(view.longest_line_columns());
     harness.set_rows(view.model());
 }
@@ -64,37 +108,26 @@ pub fn paired_harness(count: u32) -> PairedHarness {
 
 /// Replaces what a paired harness is showing.
 pub fn show_paired(harness: &PairedHarness, count: u32) {
-    let view = RowModel::new(context_rows(count));
+    let view = RowModel::from_rows(context_rows(count));
     harness.set_longest_line_columns(view.longest_line_columns());
     harness.set_rows(view.model());
 }
 
 /// Rows handed through the library's own conversion rather than a copy of it, so a break in
 /// that conversion shows up here rather than being papered over.
-fn context_rows(count: u32) -> Rows {
-    let text: SharedString = "x".repeat(COLUMNS as usize).into();
-    Rows {
-        rows: (1..=count)
-            .map(|n| Row {
-                kind: RowKind::Context,
-                left_line: Some(n),
-                right_line: Some(n),
-                text: text.clone(),
-                hidden_count: 0,
-                gap_state: GapState::Hidden,
-                columns: COLUMNS,
-                source: None,
-            })
-            .collect(),
-        longest_line_columns: COLUMNS,
-    }
+pub fn context_rows(count: u32) -> Vec<DisplayedRow> {
+    let text = "x".repeat(COLUMNS as usize);
+    let opts = RenderOptions::default();
+    (1..=count)
+        .map(|n| DisplayedRow::line(n, Side::Right, &text, &opts))
+        .collect()
 }
 
 /// A harness whose rows carry the given highlights, for asserting where they are painted.
 pub fn harness_with_highlights(count: u32, highlights: &[(usize, Highlight)]) -> Harness {
-    i_slint_backend_testing::init_no_event_loop();
+    backend();
     let harness = Harness::new().expect("creating the harness window");
-    let mut view = RowModel::new(context_rows(count));
+    let mut view = RowModel::from_rows(context_rows(count));
     view.set_highlights(highlights);
     harness.set_longest_line_columns(view.longest_line_columns());
     harness.set_rows(view.model());

@@ -16,7 +16,11 @@ export component DiffScrollbar {
 
     out property <length> range: max(0px, root.scrollable-width - root.visible-width);
 
-    height: 10px;
+    // Nothing to scroll means nothing to show. Drawing the track regardless leaves a bar that
+    // looks operable and is not, which reads as scrolling being broken rather than as there
+    // being nowhere to scroll to. Zero height as well as hidden, so it gives its space back.
+    visible: root.range > 0px;
+    height: root.range > 0px ? 10px : 0px;
 
     public function scroll-to(x: length) {
         root.scroll-x = clamp(x, -root.range, 0px);
@@ -34,9 +38,8 @@ export component DiffScrollbar {
         }
 
         Rectangle {
-            visible: root.range > 0px;
             // Both divisors are zero whenever the content fits, which would put a NaN into
-            // the geometry.
+            // the geometry. The bar is hidden then, but the bindings are still evaluated.
             x: root.range > 0px
                 ? (parent.width - self.width) * (-root.scroll-x / root.range)
                 : 0px;

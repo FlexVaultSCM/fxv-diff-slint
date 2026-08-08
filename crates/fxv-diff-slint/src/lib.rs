@@ -5,10 +5,10 @@
 //! Add the dependency and import the components in your `.slint`:
 //!
 //! ```slint,ignore
-//! import { DiffView, DiffRow, DiffStyle } from "@FxvDiff";
+//! import { DiffView, LinePair, DiffStyle } from "@FxvDiff";
 //!
 //! export component MainWindow inherits Window {
-//!     in property <[DiffRow]> rows;
+//!     in property <[LinePair]> rows;
 //!     DiffView { rows: root.rows; }
 //! }
 //! ```
@@ -47,9 +47,7 @@ pub use model::{
     LineKind, LineOrigin,
 };
 pub use parse::{parse_unified_diff, ParseError};
-pub use rows::{
-    build_inline, build_side_by_side, GapState, Row, RowKind, RowOptions, Rows, SideBySideRows,
-};
+pub use rows::{build_inline, build_split, GapState, Layout, Line, LinePair, Row, RowOptions};
 // A selection travels through three forms: the gesture, the durable spans it resolves to, and
 // the ranges those are painted as. One module owns each.
 pub use highlight::{to_highlights, DisplayColumnExtent, Highlight, HighlightKind};
@@ -58,7 +56,7 @@ pub use span::{LineSpan, Side, SourceCharExtent};
 pub use text::{
     display_column_of, map_span, measure_line, render_line, source_index_at, RenderOptions,
 };
-pub use view::RowModel;
+pub use view::{DisplayedRow, Pane, RowKind, RowModel};
 
 // Machine-generated, and it names everything through full paths. That is correct for
 // generated code and not something to lint.

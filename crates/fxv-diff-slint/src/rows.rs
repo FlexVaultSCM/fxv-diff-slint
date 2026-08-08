@@ -1,22 +1,44 @@
-//! Flattening a parsed diff into the rows a view renders.
+//! Laying a parsed diff out as a sequence of rows.
 //!
-//! A unified diff describes changes; a view draws lines. This is where one becomes the other.
-//! It is plain data in and plain data out, with no Slint involved, because the interesting
-//! parts (aligning two sides, working out what is hidden between hunks) are worth testing
-//! without a window in the way.
+//! A unified diff describes changes; a view shows a list. This is where one becomes the other,
+//! and it stops short of anything about drawing. A row says which line of which file belongs at
+//! a position, not what that line looks like: no rendered text, no column counts, no options
+//! about tabs or whitespace. Those belong to whatever puts it on screen, and keeping them out
+//! means changing how a line is drawn does not disturb where it sits.
+//!
+//! What the types are, and how they nest:
+//!
+//! ```text
+//! Layout                    one diff, arranged for one view
+//!  |
+//!  +- Row                   one position in that arrangement, drawn as one row per pane
+//!      |
+//!      +- Lines(LinePair)   content
+//!      |    |
+//!      |    +- left:  Option<Line>    from the before-file, absent if the line was added
+//!      |    +- right: Option<Line>    from the after-file, absent if it was removed
+//!      |
+//!      +- Gap { .. }        lines that exist but are not shown, and what is happening to them
+//!      +- Header            the file itself rather than anything in it
+//!
+//! Line { number, source }   a line number, and the way back to its text
+//! ```
+//!
+//! `Row` here is the arrangement's row; `view::DisplayedRow` is what one turns into once a pane
+//! has decided how it looks. `Block`, further down, is a private grouping used while building
+//! and never leaves this module.
+//!
+//! Plain data in and plain data out, with no Slint involved, because the interesting parts,
+//! aligning two sides and working out what is hidden between hunks, are worth testing without a
+//! window in the way.
 
 // == Std
 use std::ops::Range;
 
-// == External Crates
-use slint::SharedString;
-
 // == Internal Crates
 use crate::model::{DiffLine, Fetch, FetchState, FileDiff, Hunk, LineKind, LineRef};
-use crate::span::Side;
-use crate::text::{display_width, render_line, RenderOptions};
 
-/// Why a gap row's lines are not on screen.
+/// Why a gap's lines are not on screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GapState {
     /// Nobody has asked for them.
@@ -24,96 +46,82 @@ pub enum GapState {
     Hidden,
     /// Somebody has, and they have not arrived.
     Waiting,
-    /// Somebody did, and it did not work. The row's text says why.
+    /// Somebody did, and it did not work.
     Failed,
 }
 
+/// One line of a file, at the position it was laid out.
+///
+/// Deliberately small. A line is a number and a way back to its text; everything else about it
+/// belongs either to the document it came from or to the view drawing it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RowKind {
-    /// Names the file, and carries its rename or mode change if it has one.
-    Header,
-    /// Unchanged content, shown to give the change context.
-    Context,
-    Added,
-    Removed,
-    /// Content that exists but is not shown. Expanding it replaces the row with the lines.
-    Gap,
-    /// Nothing on this side. Keeps the two panes of a side-by-side view in step.
-    Filler,
+pub struct Line {
+    /// 1-based, in whichever file this row belongs to.
+    pub line: u32,
+    pub source: LineRef,
 }
 
-/// One row of the rendered diff.
+/// One position of a diff, holding whichever side has a line there.
+///
+/// Named for what it is rather than "row", because the widget's own row struct already carries
+/// that name and this is not one: it is the pair a row is drawn from.
+///
+/// Both sides present means either an unchanged line, which is one line shown twice, or a
+/// removal paired with the addition that replaced it. Those are told apart by whether the
+/// sources match, and a view needing to know looks up the kind of each line rather than being
+/// told: one kind cannot describe a position that is a removal on one side and an addition on
+/// the other.
+///
+/// One side absent is a line with no counterpart, which a two-column view draws as blank space.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct LinePair {
+    pub left: Option<Line>,
+    pub right: Option<Line>,
+}
+
+/// One position in a laid-out diff.
+///
+/// A sum rather than a row with mostly unused fields: a gap stands for lines that are not
+/// there, so it has no line numbers to give, and a header stands for the file rather than for
+/// anything in it.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Row {
-    pub kind: RowKind,
-    /// Line number in the left file. Absent for added lines and fillers.
-    pub left_line: Option<u32>,
-    /// Line number in the right file. Absent for removed lines and fillers.
-    pub right_line: Option<u32>,
-    /// Display text, tabs already expanded. Empty for fillers.
-    ///
-    /// Shared rather than owned outright. A side-by-side view puts the same context line in
-    /// both panes, and every row is handed to the widget as well, so an owned string would be
-    /// copied three times over for text that never changes after it is built.
-    pub text: SharedString,
-    /// How many lines a gap row is hiding. Zero for every other kind.
-    pub hidden_count: u32,
-    /// Only meaningful on a gap row.
-    pub gap_state: GapState,
-    /// Columns the text occupies.
-    ///
-    /// Recorded when the row is built because rendering has just walked the line and knows
-    /// the answer. Measuring the finished rows instead would mean a second pass over every
-    /// character in the diff to recover a number that was already in hand.
-    pub columns: u32,
-    /// The line this row was rendered from, for anything that needs the original text rather
-    /// than what is drawn. Absent for gaps, headers and fillers, which stand for no line.
-    pub source: Option<LineRef>,
+pub enum Row {
+    Lines(LinePair),
+    Gap {
+        /// Where the hidden run starts on each side, so opening it knows what to ask for.
+        left_start: u32,
+        right_start: u32,
+        hidden: u32,
+        state: GapState,
+        /// The run being fetched, numbered on the right, when one is.
+        ///
+        /// Which control started it is not recorded, because the model has no idea what a
+        /// control is. A view works it out by comparing this against what each of its controls
+        /// would have asked for, which survives the row being rebuilt underneath it.
+        pending: Option<(u32, u32)>,
+        /// The heading of the hunk this gap runs up to, when it is the stretch nearest one.
+        heading: Option<String>,
+        /// Why a fetch failed, when one did.
+        reason: Option<String>,
+    },
+    Header,
 }
 
-impl Row {
-    /// Which file names this row, and the line number it has there.
-    ///
-    /// A removed line exists only on the left and an added line only on the right, so each
-    /// decides itself. An unchanged line exists on both, and nothing about the line says which
-    /// is meant: an inline view means the right, being the file as it stands after the change,
-    /// while a pane of a side-by-side view means its own side, since a selection made in the
-    /// left pane is about the left file whatever the line is. That is what `context_side`
-    /// supplies.
-    ///
-    /// Rows standing for no line have no number on either side and return `None`.
-    pub fn file_line(&self, context_side: Side) -> Option<(Side, u32)> {
-        let side = match self.kind {
-            RowKind::Removed => Side::Left,
-            RowKind::Added => Side::Right,
-            _ => context_side,
-        };
-        let line = match side {
-            Side::Left => self.left_line,
-            Side::Right => self.right_line,
-        }?;
-        Some((side, line))
-    }
-
-    fn filler() -> Self {
-        Row {
-            kind: RowKind::Filler,
-            left_line: None,
-            right_line: None,
-            text: SharedString::new(),
-            hidden_count: 0,
-            gap_state: GapState::Hidden,
-            columns: 0,
-            source: None,
-        }
-    }
+/// A diff laid out for one arrangement.
+///
+/// Which arrangement matters, because the two order their entries differently: an inline view
+/// lists a change's removals and then its additions, while a two-column view puts them opposite
+/// each other. One list serves both panes of a two-column view, since a pane reads its own side
+/// of each entry.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Layout {
+    pub rows: Vec<Row>,
 }
 
+/// What to lay out, as opposed to how to draw it.
 #[derive(Debug, Clone, Default)]
 pub struct RowOptions {
-    /// How each line is turned into the text a view draws.
-    pub render: RenderOptions,
-    /// Prepend a row naming the file.
+    /// Prepend an entry naming the file.
     pub include_file_header: bool,
     /// Total lines in the left file. Without it there is no way to know whether anything
     /// follows the last hunk, so no trailing gap is produced.
@@ -122,53 +130,12 @@ pub struct RowOptions {
     pub right_total_lines: Option<u32>,
 }
 
-/// Rows plus the measurement a view needs to size its horizontal scroll.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct Rows {
-    pub rows: Vec<Row>,
-    /// Columns occupied by the longest row's text.
-    pub longest_line_columns: u32,
-}
-
-impl Rows {
-    fn from_rows(rows: Vec<Row>) -> Self {
-        let longest_line_columns = rows.iter().map(|r| r.columns).max().unwrap_or(0);
-        Rows {
-            rows,
-            longest_line_columns,
-        }
-    }
-}
-
-/// The two panes of a side-by-side view.
-///
-/// Both sides always have the same number of rows, so a given index names the same place in
-/// the diff on both, which is what lets the panes scroll together.
-#[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct SideBySideRows {
-    pub left: Rows,
-    pub right: Rows,
-}
-
-impl SideBySideRows {
-    /// The column count both panes should be sized by.
-    ///
-    /// It is the wider of the two on purpose. The panes scroll horizontally together, so
-    /// giving each its own width would make their scroll ranges differ and let the sides drift
-    /// out of step as the view moves sideways.
-    pub fn longest_line_columns(&self) -> u32 {
-        self.left
-            .longest_line_columns
-            .max(self.right.longest_line_columns)
-    }
-}
-
-/// Builds the rows for a single-column view showing removals above additions.
-pub fn build_inline(file: &FileDiff, opts: &RowOptions) -> Rows {
+/// Lays a diff out in one column, with a change's removals above its additions.
+pub fn build_inline(file: &FileDiff, opts: &RowOptions) -> Layout {
     let mut rows = Vec::new();
 
     if opts.include_file_header {
-        rows.push(header_row(file));
+        rows.push(Row::Header);
     }
 
     let mut walker = GapWalker::new(file, opts);
@@ -176,80 +143,97 @@ pub fn build_inline(file: &FileDiff, opts: &RowOptions) -> Rows {
         rows.extend(walker.gap_before(hunk));
         for block in change_blocks(&hunk.lines) {
             match block {
-                Block::Context(i) => rows.push(content_row(h, i, &hunk.lines, opts)),
+                Block::Context(i) => rows.push(context_entry(h, i, &hunk.lines)),
                 Block::Change { removed, added } => {
-                    rows.extend(removed.map(|i| content_row(h, i, &hunk.lines, opts)));
-                    rows.extend(added.map(|i| content_row(h, i, &hunk.lines, opts)));
+                    // One run after the other, which is what makes this the inline
+                    // arrangement rather than the paired one.
+                    rows.extend(removed.map(|i| one_sided_entry(h, i, &hunk.lines)));
+                    rows.extend(added.map(|i| one_sided_entry(h, i, &hunk.lines)));
                 }
             }
         }
     }
     rows.extend(walker.trailing_gap());
 
-    Rows::from_rows(rows)
+    Layout { rows }
 }
 
-/// Builds the rows for a two-column view showing the files next to each other.
-pub fn build_side_by_side(file: &FileDiff, opts: &RowOptions) -> SideBySideRows {
-    let mut left = Vec::new();
-    let mut right = Vec::new();
+/// Lays a diff out with the two files opposite each other.
+///
+/// The two runs of a change are placed side by side and the shorter is padded, which is what
+/// keeps a three-line removal facing the five-line addition that replaced it.
+pub fn build_split(file: &FileDiff, opts: &RowOptions) -> Layout {
+    let mut rows = Vec::new();
 
     if opts.include_file_header {
-        left.push(header_row(file));
-        right.push(header_row(file));
+        rows.push(Row::Header);
     }
 
     let mut walker = GapWalker::new(file, opts);
     for (h, hunk) in file.hunks().iter().enumerate() {
-        for row in walker.gap_before(hunk) {
-            left.push(row.clone());
-            right.push(row);
-        }
-        pair_hunk(h, hunk, opts, &mut left, &mut right);
-    }
-    for row in walker.trailing_gap() {
-        left.push(row.clone());
-        right.push(row);
-    }
-
-    debug_assert_eq!(left.len(), right.len(), "panes must stay in step");
-
-    SideBySideRows {
-        left: Rows::from_rows(left),
-        right: Rows::from_rows(right),
-    }
-}
-
-/// Lays a hunk's lines out in two columns.
-///
-/// The two runs of a change are placed opposite each other and the shorter is padded, which is
-/// what keeps a three-line removal facing the five-line addition that replaced it.
-fn pair_hunk(
-    hunk_index: usize,
-    hunk: &Hunk,
-    opts: &RowOptions,
-    left: &mut Vec<Row>,
-    right: &mut Vec<Row>,
-) {
-    for block in change_blocks(&hunk.lines) {
-        match block {
-            Block::Context(i) => {
-                // The same line goes in both panes. Cloning shares the text rather than
-                // copying it, which matters because context is most of a diff.
-                let row = content_row(hunk_index, i, &hunk.lines, opts);
-                left.push(row.clone());
-                right.push(row);
-            }
-            Block::Change { removed, added } => {
-                for slot in 0..removed.len().max(added.len()) {
-                    let l = removed.start.checked_add(slot).filter(|i| *i < removed.end);
-                    let r = added.start.checked_add(slot).filter(|i| *i < added.end);
-                    left.push(row_or_filler(hunk_index, l, &hunk.lines, opts));
-                    right.push(row_or_filler(hunk_index, r, &hunk.lines, opts));
+        rows.extend(walker.gap_before(hunk));
+        for block in change_blocks(&hunk.lines) {
+            match block {
+                Block::Context(i) => rows.push(context_entry(h, i, &hunk.lines)),
+                Block::Change { removed, added } => {
+                    for slot in 0..removed.len().max(added.len()) {
+                        let l = removed.start.checked_add(slot).filter(|i| *i < removed.end);
+                        let r = added.start.checked_add(slot).filter(|i| *i < added.end);
+                        rows.push(Row::Lines(LinePair {
+                            left: l.and_then(|i| row_at(h, i, &hunk.lines)),
+                            right: r.and_then(|i| row_at(h, i, &hunk.lines)),
+                        }));
+                    }
                 }
             }
         }
     }
+    rows.extend(walker.trailing_gap());
+
+    Layout { rows }
+}
+
+/// An unchanged line, which stands on both sides at once.
+fn context_entry(hunk: usize, index: usize, lines: &[DiffLine]) -> Row {
+    let source = LineRef {
+        hunk: hunk as u32,
+        line: index as u32,
+    };
+    Row::Lines(LinePair {
+        left: lines[index].left_line.map(|line| Line { line, source }),
+        right: lines[index].right_line.map(|line| Line { line, source }),
+    })
+}
+
+/// A removal or an addition, which exists on one side only.
+fn one_sided_entry(hunk: usize, index: usize, lines: &[DiffLine]) -> Row {
+    let row = row_at(hunk, index, lines);
+    Row::Lines(match lines[index].kind {
+        LineKind::Removed => LinePair {
+            left: row,
+            right: None,
+        },
+        _ => LinePair {
+            left: None,
+            right: row,
+        },
+    })
+}
+
+/// The row for one line of a hunk, numbered by whichever side carries it.
+fn row_at(hunk: usize, index: usize, lines: &[DiffLine]) -> Option<Line> {
+    let line = &lines[index];
+    let number = match line.kind {
+        LineKind::Removed => line.left_line,
+        _ => line.right_line,
+    }?;
+    Some(Line {
+        line: number,
+        source: LineRef {
+            hunk: hunk as u32,
+            line: index as u32,
+        },
+    })
 }
 
 /// A hunk's lines grouped into what they mean rather than the order they were written in.
@@ -270,6 +254,11 @@ enum Block {
     },
 }
 
+/// Groups a hunk's lines into unchanged ones and change blocks.
+///
+/// "Change block" is the usual name for a run of removals followed by the additions that
+/// replaced them, and it is the unit both arrangements care about: inline lists the two runs
+/// one after the other, a split puts them opposite each other.
 fn change_blocks(lines: &[DiffLine]) -> Vec<Block> {
     let mut blocks = Vec::new();
     let mut i = 0;
@@ -280,6 +269,8 @@ fn change_blocks(lines: &[DiffLine]) -> Vec<Block> {
             i += 1;
             continue;
         }
+
+        // Not context, so a change block starts here and runs until the next context line.
 
         // Removals then additions, the order a unified diff writes them. Taking each run
         // independently means the reverse order costs nothing.
@@ -303,56 +294,18 @@ fn change_blocks(lines: &[DiffLine]) -> Vec<Block> {
     blocks
 }
 
-/// Turns a parsed line into the row that renders it.
+/// What is happening to one run of hidden lines.
 ///
-/// The line numbers come across unchanged rather than being cleared per side: a removed line
-/// already has no right-hand number and an added line has no left-hand one.
-fn content_row(hunk: usize, index: usize, hunk_lines: &[DiffLine], opts: &RowOptions) -> Row {
-    let line = &hunk_lines[index];
-    let (text, columns) = render_line(&line.text, line.line_ending, &opts.render);
-    Row {
-        kind: match line.kind {
-            LineKind::Context => RowKind::Context,
-            LineKind::Added => RowKind::Added,
-            LineKind::Removed => RowKind::Removed,
-        },
-        left_line: line.left_line,
-        right_line: line.right_line,
-        text: text.as_str().into(),
-        hidden_count: 0,
-        gap_state: GapState::Hidden,
-        columns: columns as u32,
-        source: Some(LineRef {
-            hunk: hunk as u32,
-            line: index as u32,
-        }),
-    }
-}
-
-/// A row for the line at that index, or blank space where that side of a change has run out.
-fn row_or_filler(
-    hunk: usize,
-    index: Option<usize>,
-    hunk_lines: &[DiffLine],
-    opts: &RowOptions,
-) -> Row {
-    match index {
-        Some(index) => content_row(hunk, index, hunk_lines, opts),
-        None => Row::filler(),
-    }
-}
-
-fn header_row(file: &FileDiff) -> Row {
-    Row {
-        kind: RowKind::Header,
-        left_line: None,
-        right_line: None,
-        columns: display_width(file.display_path()) as u32,
-        text: file.display_path().into(),
-        hidden_count: 0,
-        gap_state: GapState::Hidden,
-        source: None,
-    }
+/// A named struct rather than a tuple, because three optional-looking fields in a row are
+/// impossible to read at a call site: it is otherwise `(GapState, Option<(u32, u32)>,
+/// Option<String>)` and nothing says which is which.
+#[derive(Debug, Default)]
+struct GapProgress {
+    state: GapState,
+    /// The run being fetched, numbered on the right, when one is.
+    pending: Option<(u32, u32)>,
+    /// Why the last attempt failed, when one did.
+    reason: Option<String>,
 }
 
 /// Tracks how far through each file the hunks have reached, so the lines between them can be
@@ -388,7 +341,9 @@ impl<'a> GapWalker<'a> {
         let right_hidden = hunk.right_start.saturating_sub(self.right_next);
         let hidden = left_hidden.max(right_hidden);
 
-        let rows = self.gap_rows(hidden, hunk.heading.as_deref());
+        let rows = self.gaps(hidden, hunk.heading.as_deref());
+
+        // Past this hunk on both sides, ready for the distance to the next one.
 
         self.left_next = (hunk.left_start + hunk.left_len).max(1);
         self.right_next = (hunk.right_start + hunk.right_len).max(1);
@@ -409,61 +364,63 @@ impl<'a> GapWalker<'a> {
             .map_or(0, |total| (total + 1).saturating_sub(self.right_next));
         let hidden = left_hidden.max(right_hidden);
 
-        self.gap_rows(hidden, None)
+        self.gaps(hidden, None)
     }
 
-    /// Splits a run of hidden lines around anything being fetched, so a gap being opened
-    /// shows that rather than pretending nothing is happening.
-    fn gap_rows(&self, hidden: u32, heading: Option<&str>) -> Vec<Row> {
-        let mut rows = Vec::new();
-        let mut offset = 0;
-
-        while offset < hidden {
-            let fetch = self.fetch_at(self.right_next + offset);
-            let mut run = 1;
-            while offset + run < hidden && self.fetch_at(self.right_next + offset + run) == fetch {
-                run += 1;
-            }
-
-            // The heading describes the hunk that follows, so it belongs to the stretch that
-            // runs up to it and not to any earlier one.
-            let heading = (offset + run == hidden).then_some(heading).flatten();
-            rows.push(self.gap_row(offset, run, heading, fetch));
-            offset += run;
+    /// One entry per run of hidden lines, whatever is being fetched from it.
+    ///
+    /// A fetch belongs to the control that asked for it, not to a slice of the gap. Splitting
+    /// the run around it made the gap grow a row on every attempt, and a failed attempt left
+    /// that row behind for good. So the run stays whole and carries what is happening to it.
+    fn gaps(&self, hidden: u32, heading: Option<&str>) -> Vec<Row> {
+        if hidden == 0 {
+            return Vec::new();
         }
 
-        rows
+        let progress = self.fetch_state(self.right_next, hidden);
+        vec![Row::Gap {
+            left_start: self.left_next,
+            right_start: self.right_next,
+            hidden,
+            state: progress.state,
+            pending: progress.pending,
+            heading: heading.map(str::to_owned),
+            reason: progress.reason,
+        }]
     }
 
-    fn fetch_at(&self, right_line: u32) -> Option<&'a Fetch> {
-        self.fetches
-            .iter()
-            .find(|f| right_line >= f.right_start && right_line < f.right_start + f.count)
-    }
+    /// What is happening to a run of hidden lines.
+    ///
+    /// A fetch in flight wins over a past failure, so starting another attempt replaces the
+    /// message rather than showing both at once.
+    fn fetch_state(&self, right_start: u32, count: u32) -> GapProgress {
+        let overlapping = self.fetches.iter().filter(|f| {
+            f.right_start < right_start + count && right_start < f.right_start + f.count
+        });
 
-    fn gap_row(
-        &self,
-        offset: u32,
-        count: u32,
-        heading: Option<&str>,
-        fetch: Option<&Fetch>,
-    ) -> Row {
-        let (state, text) = match fetch.map(|f| &f.state) {
-            None => (GapState::Hidden, heading.unwrap_or_default()),
-            Some(FetchState::Waiting) => (GapState::Waiting, ""),
-            Some(FetchState::Failed(why)) => (GapState::Failed, why.as_str()),
-        };
+        // A run still in flight wins outright: it is the newer fact, and showing both at once
+        // would put a stale message beside a live spinner.
+        let mut failure = None;
+        for fetch in overlapping {
+            match &fetch.state {
+                FetchState::Waiting => {
+                    return GapProgress {
+                        state: GapState::Waiting,
+                        pending: Some((fetch.right_start, fetch.count)),
+                        reason: None,
+                    }
+                }
+                FetchState::Failed(why) => failure = Some(why.clone()),
+            }
+        }
 
-        Row {
-            kind: RowKind::Gap,
-            // Where the hidden run starts, so a host asked to open it knows what to fetch.
-            left_line: Some(self.left_next + offset),
-            right_line: Some(self.right_next + offset),
-            columns: display_width(text) as u32,
-            text: text.into(),
-            hidden_count: count,
-            gap_state: state,
-            source: None,
+        match failure {
+            Some(why) => GapProgress {
+                state: GapState::Failed,
+                pending: None,
+                reason: Some(why),
+            },
+            None => GapProgress::default(),
         }
     }
 }
@@ -471,7 +428,7 @@ impl<'a> GapWalker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{DiffLine, FileChange, FileContent, LineEnding, LineOrigin};
+    use crate::model::{FileChange, FileContent, LineEnding, LineOrigin};
 
     fn line(kind: LineKind, left: Option<u32>, right: Option<u32>, text: &str) -> DiffLine {
         DiffLine {
@@ -496,13 +453,8 @@ mod tests {
         }
     }
 
-    /// A hunk replacing `removed` lines with `added` lines, wrapped in one line of context on
-    /// each side, starting at `start` on both sides.
-    ///
-    /// It therefore covers `removed.len() + 2` lines on the left and `added.len() + 2` on the
-    /// right, so `change_hunk(1, &["a"], &["b"])` occupies lines 1 to 3 and the next free line
-    /// is 4. Getting that count wrong is the easiest way to write a gap test that fails for
-    /// the wrong reason.
+    /// A hunk with one context line, then the removals, then the additions, then one more
+    /// context line. It therefore covers `removed.len() + 2` lines on the left.
     fn change_hunk(start: u32, removed: &[&str], added: &[&str]) -> Hunk {
         let mut lines = vec![line(
             LineKind::Context,
@@ -526,386 +478,231 @@ mod tests {
                 text,
             ));
         }
-        let left_len = 2 + removed.len() as u32;
-        let right_len = 2 + added.len() as u32;
+        let after = start + removed.len() as u32 + 1;
         lines.push(line(
             LineKind::Context,
-            Some(start + 1 + removed.len() as u32),
-            Some(start + 1 + added.len() as u32),
+            Some(after),
+            Some(start + added.len() as u32 + 1),
             "context after",
         ));
+
         Hunk {
             left_start: start,
-            left_len,
+            left_len: removed.len() as u32 + 2,
             right_start: start,
-            right_len,
+            right_len: added.len() as u32 + 2,
             heading: None,
             lines,
         }
     }
 
-    fn kinds(rows: &[Row]) -> Vec<RowKind> {
-        rows.iter().map(|r| r.kind).collect()
-    }
-
-    // == Inline
-
-    #[test]
-    fn inline_keeps_diff_order_with_removals_above_additions() {
-        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_eq!(
-            kinds(&rows.rows),
-            vec![
-                RowKind::Context,
-                RowKind::Removed,
-                RowKind::Added,
-                RowKind::Context
-            ]
-        );
-    }
-
-    #[test]
-    fn inline_carries_the_line_numbers_through() {
-        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
-        let rows = build_inline(&f, &RowOptions::default());
-        let pairs: Vec<_> = rows
+    /// Which sides each entry carries, as a shorthand for asserting arrangement.
+    fn sides(layout: &Layout) -> Vec<(bool, bool)> {
+        layout
             .rows
             .iter()
-            .map(|r| (r.left_line, r.right_line))
-            .collect();
+            .filter_map(|e| match e {
+                Row::Lines(pair) => Some((pair.left.is_some(), pair.right.is_some())),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn gap_counts(layout: &Layout) -> Vec<u32> {
+        layout
+            .rows
+            .iter()
+            .filter_map(|e| match e {
+                Row::Gap { hidden, .. } => Some(*hidden),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn file_with_leading_gap() -> FileDiff {
+        file(vec![change_hunk(10, &["old"], &["new"])])
+    }
+
+    // == Arrangement
+
+    #[test]
+    fn inline_lists_removals_before_the_additions_that_replaced_them() {
+        let f = file(vec![change_hunk(1, &["a", "b"], &["c"])]);
         assert_eq!(
-            pairs,
+            sides(&build_inline(&f, &RowOptions::default())),
             vec![
-                (Some(1), Some(1)),
-                (Some(2), None),
-                (None, Some(2)),
-                (Some(3), Some(3)),
+                (true, true),  // context before
+                (true, false), // removed a
+                (true, false), // removed b
+                (false, true), // added c
+                (true, true),  // context after
             ]
         );
+    }
+
+    #[test]
+    fn a_split_puts_a_replacement_opposite_what_it_replaced() {
+        let f = file(vec![change_hunk(1, &["a"], &["c"])]);
+        assert_eq!(
+            sides(&build_split(&f, &RowOptions::default())),
+            vec![(true, true), (true, true), (true, true)],
+            "the change occupies one position with a line on each side"
+        );
+    }
+
+    #[test]
+    fn a_split_pads_the_shorter_side_of_an_uneven_change() {
+        let f = file(vec![change_hunk(1, &["a", "b", "c"], &["x"])]);
+        assert_eq!(
+            sides(&build_split(&f, &RowOptions::default())),
+            vec![
+                (true, true),  // context
+                (true, true),  // a against x
+                (true, false), // b against nothing
+                (true, false), // c against nothing
+                (true, true),  // context
+            ]
+        );
+    }
+
+    #[test]
+    fn a_pure_deletion_faces_nothing() {
+        let f = file(vec![change_hunk(1, &["gone"], &[])]);
+        assert_eq!(
+            sides(&build_split(&f, &RowOptions::default())),
+            vec![(true, true), (true, false), (true, true)]
+        );
+    }
+
+    #[test]
+    fn an_unchanged_line_stands_on_both_sides_in_either_arrangement() {
+        let f = file(vec![change_hunk(1, &["a"], &["b"])]);
+        for layout in [
+            build_inline(&f, &RowOptions::default()),
+            build_split(&f, &RowOptions::default()),
+        ] {
+            let Row::Lines(first) = &layout.rows[0] else {
+                panic!("expected a line");
+            };
+            assert!(first.left.is_some() && first.right.is_some());
+            assert_eq!(
+                first.left.unwrap().source,
+                first.right.unwrap().source,
+                "the same line, shown twice"
+            );
+        }
+    }
+
+    #[test]
+    fn the_line_numbers_come_through() {
+        let f = file(vec![change_hunk(10, &["old"], &["new"])]);
+        let layout = build_inline(&f, &RowOptions::default());
+        let Row::Lines(removed) = &layout.rows[2] else {
+            panic!("expected the removal");
+        };
+        assert_eq!(removed.left.unwrap().line, 11);
+        assert!(removed.right.is_none());
     }
 
     #[test]
     fn a_file_header_is_opt_in() {
         let f = file(vec![change_hunk(1, &["a"], &["b"])]);
+        assert!(!build_inline(&f, &RowOptions::default())
+            .rows
+            .iter()
+            .any(|e| matches!(e, Row::Header)));
+        assert!(matches!(
+            build_inline(
+                &f,
+                &RowOptions {
+                    include_file_header: true,
+                    ..RowOptions::default()
+                }
+            )
+            .rows[0],
+            Row::Header
+        ));
+    }
 
-        let without = build_inline(&f, &RowOptions::default());
-        assert_ne!(without.rows[0].kind, RowKind::Header);
-
-        let with = build_inline(
-            &f,
-            &RowOptions {
-                include_file_header: true,
-                ..Default::default()
-            },
-        );
-        assert_eq!(with.rows[0].kind, RowKind::Header);
-        assert_eq!(with.rows[0].text, "f.rs");
+    #[test]
+    fn a_file_with_no_hunks_lays_out_as_nothing() {
+        let layout = build_inline(&file(vec![]), &RowOptions::default());
+        assert!(layout.rows.is_empty());
     }
 
     // == Gaps
 
     #[test]
     fn a_hunk_that_does_not_start_at_line_one_is_preceded_by_a_gap() {
-        let f = file(vec![change_hunk(10, &["old"], &["new"])]);
-        let rows = build_inline(&f, &RowOptions::default());
-
-        assert_eq!(rows.rows[0].kind, RowKind::Gap);
-        // Lines 1 to 9 are hidden.
-        assert_eq!(rows.rows[0].hidden_count, 9);
-        assert_eq!(rows.rows[0].left_line, Some(1));
-        assert_eq!(rows.rows[0].right_line, Some(1));
+        let f = file_with_leading_gap();
+        assert_eq!(
+            gap_counts(&build_inline(&f, &RowOptions::default())),
+            vec![9]
+        );
     }
 
     #[test]
     fn a_hunk_starting_at_line_one_has_no_gap_before_it() {
-        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_ne!(rows.rows[0].kind, RowKind::Gap);
+        let f = file(vec![change_hunk(1, &["a"], &["b"])]);
+        assert!(gap_counts(&build_inline(&f, &RowOptions::default())).is_empty());
     }
 
     #[test]
     fn the_lines_between_two_hunks_become_a_gap() {
-        // The first hunk covers 1 to 3, the second starts at 20, so 4 to 19 are hidden.
         let f = file(vec![
             change_hunk(1, &["a"], &["b"]),
             change_hunk(20, &["c"], &["d"]),
         ]);
-        let rows = build_inline(&f, &RowOptions::default());
-
-        let gaps: Vec<&Row> = rows
-            .rows
-            .iter()
-            .filter(|r| r.kind == RowKind::Gap)
-            .collect();
-        assert_eq!(gaps.len(), 1);
-        assert_eq!(gaps[0].hidden_count, 16);
-        assert_eq!(gaps[0].left_line, Some(4));
+        // The first hunk covers lines 1 to 3, so 4 up to 19 are hidden.
+        assert_eq!(
+            gap_counts(&build_inline(&f, &RowOptions::default())),
+            vec![16]
+        );
     }
 
     #[test]
     fn adjacent_hunks_produce_no_gap() {
-        // The first hunk covers 1 to 3; the second starts immediately after.
+        // The first covers lines 1 to 3, so a hunk starting at 4 hides nothing.
         let f = file(vec![
             change_hunk(1, &["a"], &["b"]),
             change_hunk(4, &["c"], &["d"]),
         ]);
-        let rows = build_inline(&f, &RowOptions::default());
-        assert!(!rows.rows.iter().any(|r| r.kind == RowKind::Gap));
+        assert!(gap_counts(&build_inline(&f, &RowOptions::default())).is_empty());
     }
 
     #[test]
     fn a_trailing_gap_needs_the_file_length_to_be_known() {
         let f = file(vec![change_hunk(1, &["a"], &["b"])]);
+        assert!(gap_counts(&build_inline(&f, &RowOptions::default())).is_empty());
 
-        // Without totals there is no way to tell whether anything follows the last hunk.
-        let unknown = build_inline(&f, &RowOptions::default());
-        assert!(!unknown.rows.iter().any(|r| r.kind == RowKind::Gap));
-
-        // The hunk covers 1 to 3, so lines 4 to 30 remain.
-        let known = build_inline(
+        let with_totals = build_inline(
             &f,
             &RowOptions {
-                left_total_lines: Some(30),
-                right_total_lines: Some(30),
-                ..Default::default()
+                left_total_lines: Some(10),
+                right_total_lines: Some(10),
+                ..RowOptions::default()
             },
         );
-        let last = known.rows.last().unwrap();
-        assert_eq!(last.kind, RowKind::Gap);
-        assert_eq!(last.hidden_count, 27);
-        assert_eq!(last.left_line, Some(4));
+        assert_eq!(gap_counts(&with_totals), vec![7]);
     }
 
     #[test]
     fn a_hunk_reaching_the_end_of_the_file_has_no_trailing_gap() {
-        // The hunk covers every line the file has.
         let f = file(vec![change_hunk(1, &["a"], &["b"])]);
-        let rows = build_inline(
+        let layout = build_inline(
             &f,
             &RowOptions {
                 left_total_lines: Some(3),
                 right_total_lines: Some(3),
-                ..Default::default()
+                ..RowOptions::default()
             },
         );
-        assert!(!rows.rows.iter().any(|r| r.kind == RowKind::Gap));
-    }
-
-    /// A file whose first hunk starts at line 10, so lines 1 to 9 are hidden.
-    fn file_with_leading_gap() -> FileDiff {
-        file(vec![change_hunk(10, &["old"], &["new"])])
-    }
-
-    #[test]
-    fn supplied_lines_replace_the_part_of_a_gap_they_cover() {
-        let mut f = file_with_leading_gap();
-        // Open the first three of the nine hidden lines.
-        f.expand(
-            1,
-            1,
-            ["one", "two", "three"].iter().map(|s| (*s).to_owned()),
-        );
-
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_eq!(
-            kinds(&rows.rows)[..5],
-            [
-                RowKind::Context,
-                RowKind::Context,
-                RowKind::Context,
-                RowKind::Gap,
-                RowKind::Context,
-            ]
-        );
-        assert_eq!(rows.rows[0].text, "one");
-        assert_eq!(rows.rows[2].text, "three");
-
-        // What is left keeps its own numbering and count.
-        let gap = &rows.rows[3];
-        assert_eq!(gap.hidden_count, 6, "nine hidden less the three opened");
-        assert_eq!(gap.left_line, Some(4));
-        assert_eq!(gap.right_line, Some(4));
-    }
-
-    #[test]
-    fn a_gap_can_be_opened_from_the_far_end() {
-        let mut f = file_with_leading_gap();
-        // The last three of lines 1 to 9.
-        f.expand(
-            7,
-            7,
-            ["seven", "eight", "nine"].iter().map(|s| (*s).to_owned()),
-        );
-
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_eq!(rows.rows[0].kind, RowKind::Gap);
-        assert_eq!(rows.rows[0].hidden_count, 6);
-        assert_eq!(rows.rows[0].left_line, Some(1));
-        assert_eq!(rows.rows[1].text, "seven");
-        assert_eq!(rows.rows[3].text, "nine");
-    }
-
-    #[test]
-    fn opening_the_middle_of_a_gap_leaves_one_on_each_side() {
-        let mut f = file_with_leading_gap();
-        f.expand(4, 4, ["four", "five"].iter().map(|s| (*s).to_owned()));
-
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_eq!(
-            kinds(&rows.rows)[..4],
-            [
-                RowKind::Gap,
-                RowKind::Context,
-                RowKind::Context,
-                RowKind::Gap
-            ]
-        );
-        assert_eq!(rows.rows[0].hidden_count, 3, "lines 1 to 3");
-        assert_eq!(rows.rows[3].hidden_count, 4, "lines 6 to 9");
-        assert_eq!(rows.rows[3].left_line, Some(6));
-    }
-
-    #[test]
-    fn a_fully_opened_gap_leaves_none() {
-        let mut f = file_with_leading_gap();
-        f.expand(1, 1, (1..=9).map(|n| format!("line {n}")));
-
-        let rows = build_inline(&f, &RowOptions::default());
-        assert!(!rows.rows.iter().any(|r| r.kind == RowKind::Gap));
-        assert_eq!(rows.rows[0].text, "line 1");
-        assert_eq!(rows.rows[8].text, "line 9");
-    }
-
-    #[test]
-    fn opened_lines_are_rendered_like_any_other() {
-        let mut f = file_with_leading_gap();
-        f.expand(1, 1, ["\tindented".to_owned()]);
-
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_eq!(rows.rows[0].text, "    indented", "tabs expanded");
-        assert_eq!(rows.rows[0].columns, 12);
-    }
-
-    #[test]
-    fn opening_a_gap_can_widen_the_longest_line() {
-        let mut f = file_with_leading_gap();
-        let before = build_inline(&f, &RowOptions::default()).longest_line_columns;
-
-        f.expand(1, 1, ["x".repeat(200)]);
-        let after = build_inline(&f, &RowOptions::default()).longest_line_columns;
-
-        assert_eq!(after, 200, "the opened line is now the longest");
-        assert!(after > before);
-    }
-
-    #[test]
-    fn the_heading_stays_on_the_stretch_nearest_its_hunk() {
-        let mut hunk = change_hunk(10, &["old"], &["new"]);
-        hunk.heading = Some("impl Store {".into());
-        let mut f = file(vec![hunk]);
-        // Open the top of the gap, so a hidden stretch still sits against the hunk.
-        f.expand(1, 1, ["one".to_owned()]);
-
-        let rows = build_inline(&f, &RowOptions::default());
-        let gaps: Vec<&Row> = rows
-            .rows
-            .iter()
-            .filter(|r| r.kind == RowKind::Gap)
-            .collect();
-        assert_eq!(gaps.len(), 1);
-        assert_eq!(gaps[0].text, "impl Store {");
-    }
-
-    #[test]
-    fn side_by_side_opens_a_gap_on_both_panes_together() {
-        let mut f = file_with_leading_gap();
-        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
-
-        let sbs = build_side_by_side(&f, &RowOptions::default());
-        assert_eq!(sbs.left.rows.len(), sbs.right.rows.len());
-        assert_eq!(sbs.left.rows[0].text, "one");
-        assert_eq!(sbs.right.rows[0].text, "one");
-        assert_eq!(sbs.left.rows[2].kind, RowKind::Gap);
-        assert_eq!(sbs.right.rows[2].kind, RowKind::Gap);
-    }
-
-    #[test]
-    fn lines_far_from_any_hunk_become_a_hunk_of_their_own() {
-        let mut f = file_with_leading_gap();
-        // Line 40 is nowhere near the hidden range, and nothing would normally ask for it.
-        // Adding it anyway is honest: the caller said to show that line, so it is shown, with
-        // the distance to it left as a gap like any other.
-        f.expand(40, 40, ["stray".to_owned()]);
-
-        let rows = build_inline(&f, &RowOptions::default());
-        assert!(rows.rows.iter().any(|r| r.text == "stray"));
-
-        let gaps: Vec<u32> = rows
-            .rows
-            .iter()
-            .filter(|r| r.kind == RowKind::Gap)
-            .map(|r| r.hidden_count)
-            .collect();
-        assert_eq!(
-            gaps,
-            vec![9, 27],
-            "before the first hunk, and before line 40"
-        );
-    }
-
-    #[test]
-    fn asking_twice_for_the_same_lines_changes_nothing() {
-        let mut f = file_with_leading_gap();
-        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
-        let once = build_inline(&f, &RowOptions::default());
-
-        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
-        let twice = build_inline(&f, &RowOptions::default());
-
-        assert_eq!(once.rows, twice.rows);
-    }
-
-    #[test]
-    fn opening_the_whole_gap_merges_the_hunks_it_separated() {
-        // Two hunks with sixteen hidden lines between them.
-        let mut f = file(vec![
-            change_hunk(1, &["a"], &["b"]),
-            change_hunk(20, &["c"], &["d"]),
-        ]);
-        assert_eq!(f.hunks().len(), 2);
-
-        f.expand(4, 4, (4..20).map(|n| format!("line {n}")));
-
-        assert_eq!(f.hunks().len(), 1, "nothing separates them any more");
-        let rows = build_inline(&f, &RowOptions::default());
-        assert!(!rows.rows.iter().any(|r| r.kind == RowKind::Gap));
-    }
-
-    #[test]
-    fn a_gap_shows_the_heading_of_the_hunk_it_precedes() {
-        let mut hunk = change_hunk(10, &["old"], &["new"]);
-        hunk.heading = Some("impl Store {".into());
-        let rows = build_inline(&file(vec![hunk]), &RowOptions::default());
-        assert_eq!(rows.rows[0].text, "impl Store {");
-    }
-
-    #[test]
-    fn a_file_with_no_hunks_produces_no_rows_and_no_gap() {
-        let f = file(vec![]);
-        let rows = build_inline(
-            &f,
-            &RowOptions {
-                left_total_lines: Some(100),
-                ..Default::default()
-            },
-        );
-        assert!(rows.rows.is_empty(), "got {:?}", rows.rows);
+        assert!(gap_counts(&layout).is_empty());
     }
 
     #[test]
     fn an_added_file_has_no_leading_gap_despite_its_zero_left_numbers() {
-        // Git writes `@@ -0,0 +1,2 @@` for a file that did not exist before.
+        // Every left number is absent, so only the right side says where the hunk starts.
         let hunk = Hunk {
             left_start: 0,
             left_len: 0,
@@ -917,254 +714,110 @@ mod tests {
                 line(LineKind::Added, None, Some(2), "two"),
             ],
         };
-        let rows = build_inline(&file(vec![hunk]), &RowOptions::default());
-        assert_eq!(kinds(&rows.rows), vec![RowKind::Added, RowKind::Added]);
-    }
-
-    // == Side by side
-
-    #[test]
-    fn side_by_side_panes_always_have_the_same_length() {
-        let f = file(vec![change_hunk(1, &["a", "b", "c"], &["x"])]);
-        let sbs = build_side_by_side(&f, &RowOptions::default());
-        assert_eq!(sbs.left.rows.len(), sbs.right.rows.len());
+        assert!(gap_counts(&build_inline(&file(vec![hunk]), &RowOptions::default())).is_empty());
     }
 
     #[test]
-    fn side_by_side_puts_context_on_both_sides() {
-        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
-        let sbs = build_side_by_side(&f, &RowOptions::default());
-        assert_eq!(sbs.left.rows[0].kind, RowKind::Context);
-        assert_eq!(sbs.right.rows[0].kind, RowKind::Context);
-        assert_eq!(sbs.left.rows[0].text, sbs.right.rows[0].text);
-    }
+    fn a_gap_carries_the_heading_of_the_hunk_it_precedes() {
+        let mut hunk = change_hunk(10, &["old"], &["new"]);
+        hunk.heading = Some("fn thing()".to_owned());
+        let layout = build_inline(&file(vec![hunk]), &RowOptions::default());
 
-    #[test]
-    fn side_by_side_places_a_replacement_opposite_what_it_replaced() {
-        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
-        let sbs = build_side_by_side(&f, &RowOptions::default());
-
-        assert_eq!(sbs.left.rows[1].kind, RowKind::Removed);
-        assert_eq!(sbs.left.rows[1].text, "old");
-        assert_eq!(sbs.right.rows[1].kind, RowKind::Added);
-        assert_eq!(sbs.right.rows[1].text, "new");
-    }
-
-    #[test]
-    fn side_by_side_pads_the_shorter_side_of_an_uneven_change() {
-        // Three lines replaced by five: the left side needs two fillers.
-        let f = file(vec![change_hunk(
-            1,
-            &["a", "b", "c"],
-            &["v", "w", "x", "y", "z"],
-        )]);
-        let sbs = build_side_by_side(&f, &RowOptions::default());
-
-        assert_eq!(
-            kinds(&sbs.left.rows),
-            vec![
-                RowKind::Context,
-                RowKind::Removed,
-                RowKind::Removed,
-                RowKind::Removed,
-                RowKind::Filler,
-                RowKind::Filler,
-                RowKind::Context,
-            ]
-        );
-        assert_eq!(
-            kinds(&sbs.right.rows),
-            vec![
-                RowKind::Context,
-                RowKind::Added,
-                RowKind::Added,
-                RowKind::Added,
-                RowKind::Added,
-                RowKind::Added,
-                RowKind::Context,
-            ]
-        );
-    }
-
-    #[test]
-    fn a_pure_deletion_faces_fillers() {
-        let f = file(vec![change_hunk(1, &["a", "b"], &[])]);
-        let sbs = build_side_by_side(&f, &RowOptions::default());
-        assert_eq!(
-            kinds(&sbs.right.rows),
-            vec![
-                RowKind::Context,
-                RowKind::Filler,
-                RowKind::Filler,
-                RowKind::Context
-            ]
-        );
-        assert!(sbs.right.rows[1].text.is_empty());
-        assert_eq!(sbs.right.rows[1].left_line, None);
-        assert_eq!(sbs.right.rows[1].right_line, None);
-    }
-
-    #[test]
-    fn side_by_side_repeats_a_gap_on_both_sides_to_stay_aligned() {
-        let f = file(vec![change_hunk(10, &["old"], &["new"])]);
-        let sbs = build_side_by_side(&f, &RowOptions::default());
-        assert_eq!(sbs.left.rows[0].kind, RowKind::Gap);
-        assert_eq!(sbs.right.rows[0].kind, RowKind::Gap);
-        assert_eq!(
-            sbs.left.rows[0].hidden_count,
-            sbs.right.rows[0].hidden_count
-        );
-    }
-
-    // == Text handling
-
-    #[test]
-    fn a_row_can_find_the_line_it_was_rendered_from() {
-        let f = file(vec![change_hunk(1, &["\tremoved"], &["\tadded"])]);
-        let rows = build_inline(&f, &RowOptions::default());
-
-        for row in &rows.rows {
-            let Some(at) = row.source else {
-                continue;
-            };
-            let line = f.line(at).expect("source line should resolve");
-
-            // The row carries display text; the line carries what the file holds. For a
-            // tab-indented line those differ, which is the whole reason the reference exists.
-            assert_eq!(row.left_line, line.left_line);
-            assert_eq!(row.right_line, line.right_line);
-            if line.text.contains('\t') {
-                assert_ne!(row.text, line.text, "display text should not be the source");
-                assert!(line.text.starts_with('\t'), "the source keeps its tab");
-                assert!(row.text.starts_with("    "), "the row shows it expanded");
-            }
-        }
-    }
-
-    #[test]
-    fn rows_that_stand_for_no_line_have_no_source() {
-        let f = file(vec![change_hunk(10, &["a", "b"], &[])]);
-        let opts = RowOptions {
-            include_file_header: true,
-            ..Default::default()
+        let Row::Gap { heading, .. } = &layout.rows[0] else {
+            panic!("expected a gap");
         };
-
-        for row in &build_inline(&f, &opts).rows {
-            match row.kind {
-                RowKind::Header | RowKind::Gap | RowKind::Filler => {
-                    assert_eq!(row.source, None, "{:?} should have no source", row.kind)
-                }
-                _ => assert!(row.source.is_some(), "{:?} should have a source", row.kind),
-            }
-        }
-
-        // The same holds for the fillers a one-sided change puts in the other pane.
-        let split = build_side_by_side(&f, &opts);
-        for row in &split.right.rows {
-            if row.kind == RowKind::Filler {
-                assert_eq!(row.source, None);
-            }
-        }
+        assert_eq!(heading.as_deref(), Some("fn thing()"));
     }
 
     #[test]
-    fn side_by_side_rows_point_at_the_same_lines_as_inline_ones() {
-        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
-        let opts = RowOptions::default();
-
-        let inline: Vec<_> = build_inline(&f, &opts)
-            .rows
-            .iter()
-            .filter_map(|r| r.source)
-            .collect();
-        let split = build_side_by_side(&f, &opts);
-        let mut both: Vec<_> = split
-            .left
-            .rows
-            .iter()
-            .chain(split.right.rows.iter())
-            .filter_map(|r| r.source)
-            .collect();
-        both.sort_by_key(|r| (r.hunk, r.line));
-        both.dedup();
-
-        let mut expected = inline;
-        expected.sort_by_key(|r| (r.hunk, r.line));
-        expected.dedup();
-        assert_eq!(both, expected);
+    fn a_gap_says_where_its_hidden_run_starts() {
+        let layout = build_inline(&file_with_leading_gap(), &RowOptions::default());
+        let Row::Gap {
+            left_start,
+            right_start,
+            ..
+        } = &layout.rows[0]
+        else {
+            panic!("expected a gap");
+        };
+        assert_eq!((*left_start, *right_start), (1, 1));
     }
 
     #[test]
-    fn tabs_are_expanded_in_row_text() {
-        let f = file(vec![change_hunk(1, &["\tindented"], &["\t\tdeeper"])]);
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_eq!(rows.rows[1].text, "    indented");
-        assert_eq!(rows.rows[2].text, "        deeper");
-    }
-
-    #[test]
-    fn tab_width_flows_through_to_row_text() {
-        let f = file(vec![change_hunk(1, &["\tx"], &["y"])]);
-        let rows = build_inline(
-            &f,
-            &RowOptions {
-                render: RenderOptions {
-                    tab_width: 8,
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-        );
-        assert_eq!(rows.rows[1].text, "        x");
-    }
-
-    #[test]
-    fn the_longest_line_is_measured_after_expansion() {
-        // The tab makes this line four columns wide, not two.
-        let f = file(vec![change_hunk(1, &["\tx"], &["ab"])]);
-        let rows = build_inline(&f, &RowOptions::default());
-        assert_eq!(rows.rows[1].text, "    x");
-        // "context before" is 14 columns, the longest thing present.
-        assert_eq!(rows.longest_line_columns, 14);
-    }
-
-    #[test]
-    fn the_longest_line_accounts_for_wide_glyphs() {
-        let f = file(vec![change_hunk(1, &["\u{4f60}\u{597d}"], &["x"])]);
-        let mut hunk = change_hunk(1, &["\u{4f60}\u{597d}"], &["x"]);
-        hunk.lines.retain(|l| l.kind != LineKind::Context);
-        let rows = build_inline(&file(vec![hunk]), &RowOptions::default());
+    fn a_split_lays_out_a_gap_once_rather_than_per_side() {
+        // One list serves both panes, so a gap is one entry that each pane draws.
+        let f = file_with_leading_gap();
         assert_eq!(
-            rows.longest_line_columns, 4,
-            "two CJK glyphs are four columns"
+            gap_counts(&build_split(&f, &RowOptions::default())),
+            vec![9]
         );
-        let _ = f;
+    }
+
+    // == Fetches
+
+    fn gap_states(layout: &Layout) -> Vec<(u32, GapState)> {
+        layout
+            .rows
+            .iter()
+            .filter_map(|e| match e {
+                Row::Gap { hidden, state, .. } => Some((*hidden, *state)),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
-    fn an_empty_row_set_measures_zero() {
-        let rows = build_inline(&file(vec![]), &RowOptions::default());
-        assert_eq!(rows.longest_line_columns, 0);
-    }
-
-    #[test]
-    fn a_fetch_in_progress_splits_the_gap_and_says_so() {
+    fn a_fetch_in_progress_leaves_the_gap_whole_and_says_it_is_waiting() {
+        // The run stays one entry however much of it is being fetched. Splitting it grew the
+        // gap a row per attempt, and a failed attempt left that row behind for good.
         let mut f = file_with_leading_gap();
-        // Lines 1 to 3 of the nine hidden ones.
         f.fetch_started(1, 3);
 
-        let rows = build_inline(&f, &RowOptions::default());
-        let gaps: Vec<&Row> = rows
-            .rows
-            .iter()
-            .filter(|r| r.kind == RowKind::Gap)
-            .collect();
+        assert_eq!(
+            gap_states(&build_inline(&f, &RowOptions::default())),
+            vec![(9, GapState::Waiting)]
+        );
+    }
 
-        assert_eq!(gaps.len(), 2, "the run being fetched, then the rest");
-        assert_eq!(gaps[0].gap_state, GapState::Waiting);
-        assert_eq!(gaps[0].hidden_count, 3);
-        assert_eq!(gaps[1].gap_state, GapState::Hidden);
-        assert_eq!(gaps[1].hidden_count, 6);
+    #[test]
+    fn repeated_failures_do_not_grow_the_gap() {
+        // Three attempts on different parts of the same run, all failing. The gap is still one
+        // row, because a fetch belongs to the control that asked for it rather than to a slice
+        // of the lines.
+        let mut f = file_with_leading_gap();
+        for start in [1, 4, 7] {
+            f.fetch_failed(start, 3, "no source");
+        }
+
+        assert_eq!(
+            gap_states(&build_inline(&f, &RowOptions::default())),
+            vec![(9, GapState::Failed)]
+        );
+    }
+
+    #[test]
+    fn a_fetch_in_flight_outranks_a_past_failure() {
+        let mut f = file_with_leading_gap();
+        f.fetch_failed(1, 3, "no source");
+        f.fetch_started(4, 3);
+
+        assert_eq!(
+            gap_states(&build_inline(&f, &RowOptions::default())),
+            vec![(9, GapState::Waiting)],
+            "one thing at a time, and the newer one wins"
+        );
+    }
+
+    #[test]
+    fn clearing_failures_returns_the_gap_to_plain_hidden_lines() {
+        let mut f = file_with_leading_gap();
+        f.fetch_failed(1, 9, "no source");
+        f.clear_failed_fetches();
+
+        assert_eq!(
+            gap_states(&build_inline(&f, &RowOptions::default())),
+            vec![(9, GapState::Hidden)]
+        );
     }
 
     #[test]
@@ -1172,12 +825,12 @@ mod tests {
         let mut f = file_with_leading_gap();
         f.fetch_failed(1, 9, "no such revision");
 
-        let rows = build_inline(&f, &RowOptions::default());
-        let gap = rows.rows.iter().find(|r| r.kind == RowKind::Gap).unwrap();
-
-        assert_eq!(gap.gap_state, GapState::Failed);
-        assert_eq!(gap.text, "no such revision");
-        assert_eq!(gap.hidden_count, 9, "the whole run is still hidden");
+        let layout = build_inline(&f, &RowOptions::default());
+        let Row::Gap { state, reason, .. } = &layout.rows[0] else {
+            panic!("expected a gap");
+        };
+        assert_eq!(*state, GapState::Failed);
+        assert_eq!(reason.as_deref(), Some("no such revision"));
     }
 
     #[test]
@@ -1187,9 +840,11 @@ mod tests {
         f.fetch_started(1, 9);
 
         assert_eq!(f.fetches.len(), 1);
-        let rows = build_inline(&f, &RowOptions::default());
-        let gap = rows.rows.iter().find(|r| r.kind == RowKind::Gap).unwrap();
-        assert_eq!(gap.gap_state, GapState::Waiting);
+        let layout = build_inline(&f, &RowOptions::default());
+        let Row::Gap { state, .. } = &layout.rows[0] else {
+            panic!("expected a gap");
+        };
+        assert_eq!(*state, GapState::Waiting);
     }
 
     #[test]
@@ -1203,8 +858,14 @@ mod tests {
         );
 
         assert!(f.fetches.is_empty());
-        let rows = build_inline(&f, &RowOptions::default());
-        assert!(rows.rows.iter().all(|r| r.gap_state == GapState::Hidden));
+        let layout = build_inline(&f, &RowOptions::default());
+        assert!(layout.rows.iter().all(|e| !matches!(
+            e,
+            Row::Gap {
+                state: GapState::Waiting,
+                ..
+            }
+        )));
     }
 
     #[test]
@@ -1213,50 +874,176 @@ mod tests {
         f.fetch_started(1, 3);
         f.fetch_abandoned(1, 3);
 
-        let rows = build_inline(&f, &RowOptions::default());
-        let gaps: Vec<&Row> = rows
-            .rows
-            .iter()
-            .filter(|r| r.kind == RowKind::Gap)
-            .collect();
-        assert_eq!(gaps.len(), 1, "back to one undivided run");
-        assert_eq!(gaps[0].hidden_count, 9);
-    }
-
-    #[test]
-    fn the_heading_stays_with_the_stretch_nearest_the_hunk_when_a_fetch_splits_it() {
-        let mut f = file_with_leading_gap();
-        if let FileContent::Text { hunks } = &mut f.content {
-            hunks[0].heading = Some("fn thing()".to_owned());
-        }
-        f.fetch_started(1, 3);
-
-        let rows = build_inline(&f, &RowOptions::default());
-        let gaps: Vec<&Row> = rows
-            .rows
-            .iter()
-            .filter(|r| r.kind == RowKind::Gap)
-            .collect();
         assert_eq!(
-            gaps[0].text, "",
-            "the fetching stretch is not next to the hunk"
+            gap_counts(&build_inline(&f, &RowOptions::default())),
+            vec![9],
+            "back to one undivided run"
         );
-        assert_eq!(gaps[1].text, "fn thing()");
     }
 
     #[test]
-    fn side_by_side_shows_a_fetch_on_both_panes() {
-        let mut f = file_with_leading_gap();
+    fn a_gap_keeps_its_heading_while_a_fetch_is_in_flight() {
+        let mut hunk = change_hunk(10, &["old"], &["new"]);
+        hunk.heading = Some("fn thing()".to_owned());
+        let mut f = file(vec![hunk]);
         f.fetch_started(1, 3);
 
-        let split = build_side_by_side(&f, &RowOptions::default());
-        let waiting = |rows: &Rows| {
-            rows.rows
-                .iter()
-                .filter(|r| r.gap_state == GapState::Waiting)
-                .count()
+        let layout = build_inline(&f, &RowOptions::default());
+        let headings: Vec<Option<String>> = layout
+            .rows
+            .iter()
+            .filter_map(|e| match e {
+                Row::Gap { heading, .. } => Some(heading.clone()),
+                _ => None,
+            })
+            .collect();
+
+        assert_eq!(
+            headings,
+            vec![Some("fn thing()".to_owned())],
+            "one gap, so the heading has nowhere else to go"
+        );
+    }
+
+    // == Opening a gap
+
+    #[test]
+    fn supplied_lines_replace_the_part_of_a_gap_they_cover() {
+        let mut f = file_with_leading_gap();
+        f.expand(
+            1,
+            1,
+            ["one", "two", "three"].iter().map(|s| (*s).to_owned()),
+        );
+
+        let layout = build_inline(&f, &RowOptions::default());
+        assert_eq!(gap_counts(&layout), vec![6], "nine less the three opened");
+    }
+
+    #[test]
+    fn a_gap_can_be_opened_from_the_far_end() {
+        let mut f = file_with_leading_gap();
+        f.expand(
+            7,
+            7,
+            ["seven", "eight", "nine"].iter().map(|s| (*s).to_owned()),
+        );
+
+        assert_eq!(
+            gap_counts(&build_inline(&f, &RowOptions::default())),
+            vec![6]
+        );
+    }
+
+    #[test]
+    fn opening_the_middle_of_a_gap_leaves_one_on_each_side() {
+        let mut f = file_with_leading_gap();
+        f.expand(4, 4, ["four", "five"].iter().map(|s| (*s).to_owned()));
+
+        assert_eq!(
+            gap_counts(&build_inline(&f, &RowOptions::default())),
+            vec![3, 4]
+        );
+    }
+
+    #[test]
+    fn a_fully_opened_gap_leaves_none() {
+        let mut f = file_with_leading_gap();
+        f.expand(1, 1, (1..=9).map(|n| format!("line {n}")));
+
+        assert!(gap_counts(&build_inline(&f, &RowOptions::default())).is_empty());
+    }
+
+    #[test]
+    fn asking_twice_for_the_same_lines_changes_nothing() {
+        let mut f = file_with_leading_gap();
+        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
+        let once = build_inline(&f, &RowOptions::default());
+
+        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
+        assert_eq!(build_inline(&f, &RowOptions::default()), once);
+    }
+
+    #[test]
+    fn opening_the_whole_gap_merges_the_hunks_it_separated() {
+        let mut f = file(vec![
+            change_hunk(1, &["a"], &["b"]),
+            change_hunk(20, &["c"], &["d"]),
+        ]);
+        assert_eq!(f.hunks().len(), 2);
+
+        f.expand(4, 4, (4..20).map(|n| format!("line {n}")));
+
+        assert_eq!(f.hunks().len(), 1, "nothing separates them any more");
+        assert!(gap_counts(&build_inline(&f, &RowOptions::default())).is_empty());
+    }
+
+    #[test]
+    fn lines_far_from_any_hunk_become_a_hunk_of_their_own() {
+        let mut f = file_with_leading_gap();
+        // Line 40 is nowhere near the hidden range, and nothing would normally ask for it.
+        // Adding it anyway is honest: the caller said to show that line, so it is shown, with
+        // the distance to it left as a gap like any other.
+        f.expand(40, 40, ["stray".to_owned()]);
+
+        assert_eq!(
+            gap_counts(&build_inline(&f, &RowOptions::default())),
+            vec![9, 27],
+            "before the first hunk, and before line 40"
+        );
+    }
+
+    #[test]
+    fn opening_a_gap_on_a_split_opens_it_for_both_sides_at_once() {
+        let mut f = file_with_leading_gap();
+        f.expand(1, 1, ["one".to_owned(), "two".to_owned()]);
+
+        let layout = build_split(&f, &RowOptions::default());
+        assert_eq!(gap_counts(&layout), vec![7]);
+        // The opened lines are unchanged content, so they stand on both sides.
+        let opened: Vec<(bool, bool)> = sides(&layout).into_iter().take(2).collect();
+        assert_eq!(opened, vec![(true, true), (true, true)]);
+    }
+
+    // == Source references
+
+    #[test]
+    fn a_row_can_find_the_line_it_was_laid_out_from() {
+        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
+        let layout = build_inline(&f, &RowOptions::default());
+
+        let Row::Lines(removed) = &layout.rows[1] else {
+            panic!("expected the removal");
         };
-        assert_eq!(waiting(&split.left), 1);
-        assert_eq!(waiting(&split.right), 1);
+        let source = removed.left.unwrap().source;
+        assert_eq!(f.line(source).unwrap().text, "old");
+    }
+
+    #[test]
+    fn both_arrangements_point_at_the_same_lines() {
+        let f = file(vec![change_hunk(1, &["old"], &["new"])]);
+        // Both sides, because a split puts a removal and the addition replacing it at one
+        // position while inline gives them a position each.
+        let sources = |layout: Layout| -> Vec<LineRef> {
+            let mut all: Vec<LineRef> = layout
+                .rows
+                .iter()
+                .filter_map(|e| match e {
+                    Row::Lines(pair) => Some(pair),
+                    _ => None,
+                })
+                .flat_map(|pair| pair.left.into_iter().chain(pair.right))
+                .map(|row| row.source)
+                .collect();
+            all.sort_by_key(|s| (s.hunk, s.line));
+            all.dedup();
+            all
+        };
+
+        assert_eq!(
+            sources(build_inline(&f, &RowOptions::default())),
+            sources(build_split(&f, &RowOptions::default())),
+            "the same lines, arranged differently"
+        );
     }
 }

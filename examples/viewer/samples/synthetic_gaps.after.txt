@@ -21,7 +21,7 @@ fn alpha() -> u32 {
 // filler line 21
 // filler line 22
 // filler line 23
-// filler line 24
+    let assembled = registry.resolve(namespace, identifier, revision).with_fallback(default_provider).expect("the resolver is configured at startup and cannot fail here");
 // filler line 25
 // filler line 26
 // filler line 27
@@ -30,7 +30,7 @@ fn alpha() -> u32 {
 // filler line 30
 // filler line 31
 // filler line 32
-// filler line 33
+    // A comment long enough to reach well past any sensible window: it keeps going it keeps going it keeps going it keeps going it keeps going it keeps going and then stops.
 // filler line 34
 // filler line 35
 // filler line 36
