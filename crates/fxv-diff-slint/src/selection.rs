@@ -26,6 +26,7 @@ use std::ops::Range;
 use crate::diff::model::FileDiff;
 use crate::span::{LineSpan, SourceCharExtent};
 use crate::text::{source_index_at, RenderOptions};
+use crate::ui;
 use crate::view::DisplayedRow;
 
 /// One end of a selection, in the coordinates the view works in.
@@ -35,6 +36,29 @@ pub struct Caret {
     /// Display column, because that is what a pointer position converts to directly. The
     /// conversion to a source offset happens once, in `to_spans`.
     pub column: u32,
+}
+
+impl From<ui::DiffPosition> for Caret {
+    /// Takes a position from the widget, which reports one in the same coordinates.
+    ///
+    /// Negative values cannot be a row or a column, so they clamp to zero rather than wrap.
+    /// The widget uses a row of -1 to mean no selection at all, and a caller checks for that
+    /// before converting rather than being handed a caret at row zero.
+    fn from(at: ui::DiffPosition) -> Self {
+        Caret {
+            row: at.row.max(0) as usize,
+            column: at.column.max(0) as u32,
+        }
+    }
+}
+
+impl From<ui::DiffSelection> for Selection {
+    fn from(selection: ui::DiffSelection) -> Self {
+        Selection {
+            anchor: selection.anchor.into(),
+            focus: selection.focus.into(),
+        }
+    }
 }
 
 /// A selection in progress, or a finished one.

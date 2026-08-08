@@ -2,7 +2,10 @@ import { ListView } from "std-widgets.slint";
 import { DiffStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
 import { DiffRowView } from "row.slint";
-import { DiffRow, DiffRowKind, DiffSide, DiffLineRef, GapExpandRequest } from "types.slint";
+import {
+    DiffRow, DiffRowKind, DiffSide, DiffLineRef, DiffPosition, DiffSelection,
+    GapExpandRequest,
+} from "types.slint";
 
 // The diff viewer.
 //
@@ -92,6 +95,34 @@ export component DiffView {
             0px);
     }
 
+    /// Whether dragging in this pane selects.
+    ///
+    /// Off by default. A pane whose host does nothing with a selection should not offer one.
+    in property <bool> selectable: false;
+
+    /// The two ends of the selection.
+    ///
+    /// A row of -1 on the anchor means there is none. Plain properties on purpose: a drag moves
+    /// them and the rows redraw, with nothing written to the model and no span resolved until
+    /// the gesture ends.
+    in-out property <DiffPosition> selection-anchor: { row: -1, column: 0 };
+    in-out property <DiffPosition> selection-focus: { row: -1, column: 0 };
+
+    /// Raised when a drag finishes, which is when the selection is worth resolving to spans.
+    callback selection-finished(DiffSelection);
+
+    // The selection ordered so that start comes before end, by row and then by column within a
+    // row. Worked out once here rather than in every row.
+    out property <bool> selection-forwards:
+        root.selection-anchor.row < root.selection-focus.row
+        || (root.selection-anchor.row == root.selection-focus.row
+            && root.selection-anchor.column <= root.selection-focus.column);
+    out property <DiffPosition> sel-start: root.selection-anchor.row < 0
+        ? { row: -1, column: 0 }
+        : root.selection-forwards ? root.selection-anchor : root.selection-focus;
+    out property <DiffPosition> sel-end: root.selection-forwards
+        ? root.selection-focus : root.selection-anchor;
+
     callback line-clicked(DiffLineRef);
     callback gap-expand-requested(GapExpandRequest);
 
@@ -137,6 +168,12 @@ export component DiffView {
     // past the end. Resetting on the host side avoids that; this is the backstop.
     changed rows => {
         root.scroll-y = clamp(root.scroll-y, -root.max-scroll-y, 0px);
+        // A selection names rows by index, so it means nothing once the rows are different
+        // ones. Dropped here rather than left to a host, because the view is what knows the
+        // rows changed and a stale selection would draw over whatever now occupies those
+        // indices.
+        root.selection-anchor.row = -1;
+        root.selection-focus.row = -1;
     }
 
     // Derived from the character cell and the content, never from root.width: reading the
@@ -163,6 +200,25 @@ export component DiffView {
             visible-width: i-list.visible-width;
             show-line-numbers: root.show-line-numbers;
             gutter-columns: root.gutter-columns;
+
+            index: i;
+            selectable: root.selectable;
+            sel-start: root.sel-start;
+            sel-end: root.sel-end;
+
+            select-start(at) => {
+                root.selection-anchor = at;
+                root.selection-focus = at;
+            }
+            select-to(at) => {
+                root.selection-focus = at;
+            }
+            select-end => {
+                root.selection-finished({
+                    anchor: root.selection-anchor,
+                    focus: root.selection-focus,
+                });
+            }
 
             expand-step: root.gap-expand-step;
             gap-expandable: root.gap-expandable;

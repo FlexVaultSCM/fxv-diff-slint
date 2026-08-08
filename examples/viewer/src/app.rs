@@ -9,8 +9,9 @@ use std::rc::Rc;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines, DiffSet,
-    DisplayColumnExtent, DisplayedRow, Pane, RenderOptions, RowModel, RowOptions, Side,
+    build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines,
+    DiffSelection, DiffSet, DisplayColumnExtent, DisplayedRow, Pane, RenderOptions, RowModel,
+    RowOptions, Selection, Side,
 };
 
 // == External Crates
@@ -332,6 +333,27 @@ impl App {
                 .collect(),
         );
         self.show_current(Tab::Standalone);
+    }
+
+    /// Reports a finished drag.
+    ///
+    /// The view has drawn it already; this is the moment the gesture is worth turning into
+    /// something durable. For now it only says what was selected.
+    pub fn selection_finished(&self, pane: i32, selection: DiffSelection) {
+        let which = match pane {
+            0 => Which::Inline,
+            1 => Which::Left,
+            2 => Which::Right,
+            _ => Which::Plain,
+        };
+        let selection = Selection::from(selection);
+        eprintln!(
+            "selection: {which:?} pane, from row {} column {} to row {} column {}",
+            selection.anchor.row,
+            selection.anchor.column,
+            selection.focus.row,
+            selection.focus.column
+        );
     }
 
     /// Moves to another match and brings it into sight, wrapping at either end.

@@ -47,7 +47,9 @@ impl RowModel {
     /// The route for content that is not a diff. Everything a pane does past this point, the
     /// grid, highlights, selection and scrolling, works from these rows and asks nothing about
     /// where they came from, so a plain file listing is as good an input as a laid-out diff.
-    pub fn from_rows(rows: Vec<DisplayedRow>) -> Self {
+    pub fn from_rows(mut rows: Vec<DisplayedRow>) -> Self {
+        mark_runs(&mut rows);
+
         let longest_line_columns = rows.iter().map(|r| r.columns).max().unwrap_or(0) as i32;
         let converted: Vec<ui::DiffRow> = rows.iter().map(|r| r.into()).collect();
 
@@ -136,6 +138,28 @@ impl RowModel {
         row.highlights = to_slint_highlights(&all);
         self.model.set_row_data(index, row);
         true
+    }
+}
+
+/// Records which run of selectable rows each row belongs to.
+///
+/// A run is a maximal stretch of selectable rows. Gaps and headers are not selectable and so
+/// separate one run from the next, which is what stops a selection crossing a gap: a drag
+/// clamps to the run it began in, and the row it began on is the only thing that has to know
+/// where that run ends.
+fn mark_runs(rows: &mut [DisplayedRow]) {
+    // One pass, closing a run whenever an unselectable row ends it and once more at the end of
+    // the list. Written as a forward scan rather than a search-and-skip so that it advances on
+    // every step whatever the rows contain.
+    let mut start = 0;
+    for at in 0..=rows.len() {
+        if at < rows.len() && rows[at].selectable {
+            continue;
+        }
+        for row in &mut rows[start..at] {
+            row.selectable_run = start as u32..at as u32;
+        }
+        start = at + 1;
     }
 }
 
@@ -233,6 +257,9 @@ impl From<&DisplayedRow> for ui::DiffRow {
             busy_start: row.pending.map_or(0, |(start, _)| start) as i32,
             busy_count: row.pending.map_or(0, |(_, count)| count) as i32,
             highlights: ModelRc::default(),
+            // An empty run is how a row says it is not selectable at all.
+            run_start: row.selectable_run.start as i32,
+            run_end: row.selectable_run.end as i32,
         }
     }
 }

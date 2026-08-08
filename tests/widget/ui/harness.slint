@@ -1,4 +1,4 @@
-import { DiffView, DiffRow, DiffStyle } from "@FxvDiff";
+import { DiffView, DiffRow, DiffPosition, DiffStyle } from "@FxvDiff";
 
 // Windows of a known size around the view, so tests can reason about the viewport.
 //
@@ -30,6 +30,11 @@ export component Harness inherits Window {
     in property <int> reveal-row: -1;
     in property <int> reveal-token;
 
+    in property <bool> selectable: false;
+    in-out property <DiffPosition> selection-anchor <=> i-view.selection-anchor;
+    in-out property <DiffPosition> selection-focus <=> i-view.selection-focus;
+    out property <int> finished-count: 0;
+
     // The last gap request raised, so a test can assert what a click asked for. Negative
     // until something asks.
     out property <int> asked-left: -1;
@@ -46,6 +51,10 @@ export component Harness inherits Window {
         i-view := DiffView {
         reveal-row: root.reveal-row;
         reveal-token: root.reveal-token;
+        selectable: root.selectable;
+        selection-finished(selection) => {
+            root.finished-count += 1;
+        }
             rows: root.rows;
             longest-line-columns: root.longest-line-columns;
             gap-expandable: root.gap-expandable;

@@ -1,5 +1,7 @@
 import { Button, ComboBox, LineEdit, TabWidget } from "std-widgets.slint";
-import { DiffView, DiffScrollbar, DiffRow, DiffSide, DiffStyle, GapExpandRequest } from "@FxvDiff";
+import {
+    DiffView, DiffScrollbar, DiffRow, DiffSelection, DiffSide, DiffStyle, GapExpandRequest,
+} from "@FxvDiff";
 
 export component MainWindow inherits Window {
     // One flat list of every file in every sample, rather than picking a sample and then a
@@ -59,6 +61,9 @@ export component MainWindow inherits Window {
     callback search-changed();
     callback find-next();
     callback find-previous();
+    // Reports a finished drag, with which pane it happened in: 0 inline, 1 left, 2 right,
+    // 3 standalone, matching the order the application names its panes in.
+    callback selection-finished(int, DiffSelection);
     // Rows are built for whichever layout is on screen, so switching needs a rebuild.
     callback layout-changed();
     // Forwarded from whichever view raised it; the host owns fetching the lines.
@@ -188,6 +193,10 @@ export component MainWindow inherits Window {
                         gutter-columns: 1;
                         reveal-row: root.reveal-plain-row;
                         reveal-token: root.reveal-token;
+                        selectable: true;
+                        selection-finished(selection) => {
+                            root.selection-finished(3, selection);
+                        }
                     }
                 }
             }
@@ -255,6 +264,10 @@ export component MainWindow inherits Window {
                         reveal-token: root.reveal-token;
                         scroll-y <=> root.shared-scroll-y;
                         scroll-x <=> root.shared-scroll-x;
+                        selectable: true;
+                        selection-finished(selection) => {
+                            root.selection-finished(0, selection);
+                        }
 
                         line-clicked(ref) => {
                             debug("line clicked", ref.side, ref.line);
@@ -276,6 +289,10 @@ export component MainWindow inherits Window {
                                 gap-expandable: root.gap-expandable;
                                 reveal-row: root.reveal-diff-row;
                                 reveal-token: root.reveal-token;
+                                selectable: true;
+                                selection-finished(selection) => {
+                                    root.selection-finished(1, selection);
+                                }
                                 gutter-columns: 1;
                                 scroll-y <=> root.shared-scroll-y;
                                 scroll-x <=> root.shared-scroll-x;
@@ -296,6 +313,10 @@ export component MainWindow inherits Window {
                             i-right := DiffView {
                                 rows: root.right-rows;
                                 longest-line-columns: root.split-columns;
+                                selectable: true;
+                                selection-finished(selection) => {
+                                    root.selection-finished(2, selection);
+                                }
                                 // The left pane carries the gap's controls and message for both.
                                 gap-expandable: false;
                                 gap-details: false;

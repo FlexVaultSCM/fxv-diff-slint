@@ -1,5 +1,5 @@
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind, DiffGapState } from "types.slint";
+import { DiffRow, DiffRowKind, DiffGapState, DiffPosition } from "types.slint";
 import { GapButton } from "gap-button.slint";
 
 // One rendered row: a gutter carrying line numbers, then the line body.
@@ -25,6 +25,28 @@ export component DiffRowView {
     /// A pane showing one file draws one; an inline view of a diff draws two, since an
     /// unchanged line has a number in each file.
     in property <int> gutter-columns: 2;
+
+    /// This row's own index, for reporting where a gesture is and what to draw.
+    in property <int> index;
+
+    /// The selection on screen, already ordered so that start comes before end. A start row of
+    /// -1 means there is none. Ordered by the view so every row is spared working out which end
+    /// is which.
+    in property <DiffPosition> sel-start: { row: -1, column: 0 };
+    in property <DiffPosition> sel-end: { row: -1, column: 0 };
+    /// Whether dragging selects at all.
+    in property <bool> selectable: false;
+
+    // Whether this row may be part of a selection. A row outside every run has an empty one,
+    // which is how a gap or a header says it breaks a selection rather than joining it.
+    out property <bool> in-a-run: root.data.run-end > root.data.run-start;
+
+    /// Pointer went down on this row, at a position.
+    callback select-start(DiffPosition);
+    /// Pointer moved to a position, already clamped to this row's run.
+    callback select-to(DiffPosition);
+    /// Pointer released.
+    callback select-end();
 
     callback clicked();
     /// Asks for `count` lines starting at the given line on each side.
@@ -112,9 +134,71 @@ export component DiffRowView {
             : DiffStyle.context-background;
 
         i-touch := TouchArea {
+            // An i-beam only where a drag would actually select something, so the pointer does
+            // not promise selection over a gap, a header, or a pane whose host wants none.
+            mouse-cursor: root.selectable && root.in-a-run
+                ? MouseCursor.text
+                : MouseCursor.default;
+
+            // The column a position falls on, rounded to the nearest boundary between
+            // characters rather than truncated, so the near edge of a glyph selects before it
+            // and the far edge after it. Body coordinates already start at the content origin,
+            // so the horizontal scroll needs no undoing here.
+            function column-at(x: length) -> int {
+                max(0, round((x - (root.show-line-numbers ? root.gutter-width : 0px))
+                    / root.advance));
+            }
+
+            // A drag that leaves this row keeps reporting to it, because a TouchArea holds the
+            // pointer until release. So the row under the pointer is this row plus however many
+            // row heights away it now is, clamped to the run this row belongs to.
+            function row-at(y: length) -> int {
+                clamp(root.index + floor(y / root.height),
+                    root.data.run-start, max(root.data.run-start, root.data.run-end - 1));
+            }
+
+            pointer-event(event) => {
+                if (!root.selectable || !root.in-a-run) {
+                    return;
+                }
+                if (event.kind == PointerEventKind.down) {
+                    root.select-start({ row: root.index, column: self.column-at(self.mouse-x) });
+                } else if (event.kind == PointerEventKind.up) {
+                    root.select-end();
+                }
+            }
+
+            moved => {
+                if (root.selectable && root.in-a-run && self.pressed) {
+                    root.select-to({
+                        row: self.row-at(self.mouse-y),
+                        column: self.column-at(self.mouse-x),
+                    });
+                }
+            }
+
             clicked => {
                 root.clicked();
             }
+        }
+
+        // This row's share of the selection, drawn from properties rather than from the model
+        // so that dragging the pointer writes nothing and costs no rebuild.
+        //
+        // A row in the middle of a selection runs to its own edge, which takes in the line
+        // ending: past the last character the newline is what the rest of the row stands for.
+        if root.sel-start.row >= 0 && root.index >= root.sel-start.row
+            && root.index <= root.sel-end.row: i-selection := Rectangle {
+            property <int> from: root.index == root.sel-start.row ? root.sel-start.column : 0;
+            property <bool> to-edge: root.index != root.sel-end.row;
+
+            x: (root.show-line-numbers ? root.gutter-width : 0px) + self.from * root.advance;
+            y: 0;
+            width: self.to-edge
+                ? parent.width - self.x
+                : max(0px, (root.sel-end.column - self.from) * root.advance);
+            height: parent.height;
+            background: DiffStyle.selection-background;
         }
 
         // Ranges painted behind the text: what is selected, and whatever the host is

@@ -76,6 +76,16 @@ pub struct DisplayedRow {
     /// Whether a selection may cover this row. Gaps and headers break a selection; a filler
     /// does not, being a real position in a pane that simply holds no line.
     pub selectable: bool,
+    /// The run of selectable rows this one belongs to, as row indices.
+    ///
+    /// Not the selected run: the run a selection is *allowed* to cover. A drag may not cross a
+    /// gap or a header, so it is confined to the run it began in. Empty on a row that is not
+    /// selectable at all.
+    ///
+    /// Carried per row because the row the pointer went down on is the one that has to clamp
+    /// the other end, and a row knows only itself. Filled in by `RowModel`, which is the first
+    /// thing to see the rows in order.
+    pub selectable_run: Range<u32>,
 }
 
 impl DisplayedRow {
@@ -122,6 +132,7 @@ impl DisplayedRow {
             gap_start: (0, 0),
             pending: None,
             selectable: false,
+            selectable_run: 0..0,
         }
     }
 }

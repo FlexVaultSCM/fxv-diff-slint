@@ -75,6 +75,6 @@ pub mod ui {
 }
 
 pub use ui::{
-    DiffGapState, DiffLayoutMode, DiffLineRef, DiffRow, DiffRowKind, DiffSide, DiffStyle, DiffView,
-    GapExpandRequest,
+    DiffGapState, DiffLayoutMode, DiffLineRef, DiffPosition, DiffRow, DiffRowKind, DiffSelection,
+    DiffSide, DiffStyle, DiffView, GapExpandRequest,
 };

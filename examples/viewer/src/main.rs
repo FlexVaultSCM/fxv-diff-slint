@@ -135,6 +135,12 @@ fn main() -> Result<(), slint::PlatformError> {
         });
     }
 
+    {
+        let app = app.clone();
+        window
+            .on_selection_finished(move |pane, selection| app.selection_finished(pane, selection));
+    }
+
     // Stepping between matches, which repaints one channel and scrolls; no rebuild.
     for (install, step) in [
         (MainWindow::on_find_next as fn(&MainWindow, _), 1_isize),

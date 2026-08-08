@@ -15,7 +15,7 @@ use std::ops::Range;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    Channel, DisplayColumnExtent, DisplayedRow, LineEnding, RenderOptions, RowModel, Side,
+    Channel, DisplayColumnExtent, DisplayedRow, LineEnding, RenderOptions, RowKind, RowModel, Side,
 };
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
@@ -121,6 +121,23 @@ pub fn context_rows(count: u32) -> Vec<DisplayedRow> {
     (1..=count)
         .map(|n| DisplayedRow::line(n, Side::Right, &text, LineEnding::Lf, &opts))
         .collect()
+}
+
+/// A harness showing rows with a gap partway down.
+///
+/// A gap is not selectable, so it separates one run of rows from the next. Anything about a
+/// selection meeting that boundary needs a document that has one.
+pub fn harness_with_gap(before: u32, after: u32) -> Harness {
+    backend();
+    let harness = Harness::new().expect("creating the harness window");
+    let mut rows = context_rows(before);
+    rows.push(DisplayedRow::blank(RowKind::Gap));
+    rows.extend(context_rows(after));
+
+    let view = RowModel::from_rows(rows);
+    harness.set_longest_line_columns(view.longest_line_columns());
+    harness.set_rows(view.model());
+    harness
 }
 
 /// A harness whose rows carry the given ranges, for asserting where they are painted.

@@ -52,6 +52,30 @@ export struct DiffHighlight {
     channel: int,
 }
 
+// A place in a pane: which row, and how far across it.
+//
+// Columns are display columns, not source characters, because that is what a pointer position
+// converts to directly. A row of -1 means "nowhere", which is how the absence of a selection is
+// said without a second property to say it.
+export struct DiffPosition {
+    row: int,
+    column: int,
+}
+
+// A finished selection, in view coordinates.
+//
+// Anchor is where the drag began and focus is where it ended, so a selection made upward has
+// its focus before its anchor. Kept apart because extending a selection later has to grow from
+// the anchor rather than from whichever end comes first on screen.
+//
+// Carried by the callback rather than read back off the view, because a view can sit inside a
+// conditional block where a host cannot reach it, and because two panes of a split each have
+// their own selection that must not become one.
+export struct DiffSelection {
+    anchor: DiffPosition,
+    focus: DiffPosition,
+}
+
 // One rendered row. The view is driven entirely by a flat list of these, so the inline and
 // side-by-side layouts differ only in how the list was built, not in how it is drawn.
 export struct DiffRow {
@@ -74,6 +98,10 @@ export struct DiffRow {
     busy-count: int,
     // Ranges to paint behind the text. Empty on most rows.
     highlights: [DiffHighlight],
+    // The run of selectable rows this one belongs to, as row indices, end exclusive. A
+    // selection may not cross a gap or a header, so a drag clamps to the run it began in.
+    run-start: int,
+    run-end: int,
 }
 
 // Identifies a line by side and line number rather than by row index, so it stays valid when
