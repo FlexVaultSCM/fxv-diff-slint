@@ -4,6 +4,9 @@
 //! diff describes, rather than flattening it into rows: the row list depends on the layout
 //! and on which gaps the user has expanded, and is built separately.
 
+// == Internal Crates
+use crate::text::LineEnding;
+
 /// One or more file diffs, as found in a single unified diff document.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DiffSet {
@@ -297,19 +300,6 @@ pub struct LineRef {
     pub hunk: u32,
     /// Index within the hunk's lines, not a line number in the file.
     pub line: u32,
-}
-
-/// How a line was terminated in the file it came from.
-///
-/// Kept because a viewer may want to show line endings, and because the two forms are
-/// otherwise indistinguishable once the terminator is stripped for display.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum LineEnding {
-    Lf,
-    CrLf,
-    /// No terminator at all. Only the last line of a file can be like this, and diffs mark it
-    /// with `\ No newline at end of file`.
-    None,
 }
 
 /// Where a line came from.

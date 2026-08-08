@@ -6,6 +6,7 @@ use std::rc::Rc;
 use std::time;
 
 // == Internal Crates
+use fxv_diff_slint::render_diff;
 use fxv_diff_slint::split_lines;
 use fxv_diff_slint::{
     build_inline, build_split, parse_unified_diff, DiffSet, DisplayedRow, FileDiff, Pane,
@@ -341,8 +342,8 @@ fn rebuild_rows(window: &MainWindow, diff: &DiffSet, index: usize) {
     // twice over on every file change and every toggle, for rows nobody sees.
     if window.get_side_by_side() {
         let layout = build_split(file, &opts);
-        let left = RowModel::new(&layout, file, &render, Pane::Left);
-        let right = RowModel::new(&layout, file, &render, Pane::Right);
+        let left = RowModel::from_rows(render_diff(&layout, file, &render, Pane::Left));
+        let right = RowModel::from_rows(render_diff(&layout, file, &render, Pane::Right));
         // One count for both panes, or their scrollable widths differ and the sides drift.
         // Each pane only measured its own side, and the widest line may be on either.
         window.set_split_columns(
@@ -353,7 +354,7 @@ fn rebuild_rows(window: &MainWindow, diff: &DiffSet, index: usize) {
         window.set_right_rows(right.model());
     } else {
         let layout = build_inline(file, &opts);
-        let inline = RowModel::new(&layout, file, &render, Pane::Inline);
+        let inline = RowModel::from_rows(render_diff(&layout, file, &render, Pane::Inline));
         window.set_inline_columns(inline.longest_line_columns());
         window.set_inline_rows(inline.model());
     }

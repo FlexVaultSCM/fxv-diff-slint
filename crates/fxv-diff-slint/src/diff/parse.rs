@@ -197,7 +197,7 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::diff::model::LineEnding;
+    use crate::text::LineEnding;
 
     /// Fixtures are real `git diff` and `diff -u` output, generated from an actual
     /// repository. Hand-writing them invites headers whose line counts do not match their

@@ -47,19 +47,21 @@ pub use diff::layout::{
 };
 pub use diff::model::{
     DiffLine, DiffSet, Fetch, FetchState, FileChange, FileContent, FileDiff, FileMode, Hunk,
-    LineEnding, LineKind, LineOrigin,
+    LineKind, LineOrigin,
 };
 pub use diff::parse::{parse_unified_diff, ParseError};
+pub use diff::render::{render_diff, Pane};
 // A selection travels through three forms: the gesture, the durable spans it resolves to, and
 // the ranges those are painted as. One module owns each.
-pub use highlight::{to_highlights, DisplayColumnExtent, Highlight, HighlightKind};
+pub use highlight::to_highlights;
 pub use selection::{clamp_to_run, run_bounds, to_spans, Caret, Selection};
 pub use span::{LineSpan, Side, SourceCharExtent};
 pub use text::{
     display_column_of, map_span, measure_line, render_line, source_index_at, split_lines,
-    strip_terminator, RenderOptions,
+    strip_terminator, LineEnding, RenderOptions,
 };
-pub use view::{DisplayedRow, Pane, RowKind, RowModel};
+pub use view::{DisplayColumnExtent, Highlight, HighlightKind};
+pub use view::{DisplayedRow, RowKind, RowModel, GUTTER_COLUMNS};
 
 // Machine-generated, and it names everything through full paths. That is correct for
 // generated code and not something to lint.

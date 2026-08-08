@@ -11,8 +11,9 @@ use std::fs;
 use crate::diff::layout::{build_inline, build_split, Layout, RowOptions};
 use crate::diff::model::FileDiff;
 use crate::diff::parse::parse_unified_diff;
+use crate::diff::render::{render_diff, Pane};
 use crate::text::RenderOptions;
-use crate::view::{DisplayedRow, Pane, RowKind, RowModel};
+use crate::view::{DisplayedRow, RowKind, RowModel};
 
 pub fn file() -> FileDiff {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tab_line.diff");
@@ -33,7 +34,7 @@ pub fn split(file: &FileDiff) -> Layout {
 
 /// One pane's worth of rendered rows, which is what the selection and highlight code works on.
 pub fn shown(layout: &Layout, file: &FileDiff, pane: Pane) -> Vec<DisplayedRow> {
-    RowModel::new(layout, file, &RenderOptions::default(), pane)
+    RowModel::from_rows(render_diff(layout, file, &RenderOptions::default(), pane))
         .rows()
         .to_vec()
 }

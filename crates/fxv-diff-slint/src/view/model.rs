@@ -1,142 +1,22 @@
-//! Turning a laid-out diff into rows a pane can draw.
+//! The rows a pane is showing, and the handover to the widget.
 //!
-//! A `Layout` says which line belongs at which position. A pane has to answer more than that:
-//! what the line reads as once tabs are expanded, how many columns it occupies, which numbers
-//! its gutter shows, and what colour it draws with. Those are all decisions about display, so
-//! they are made here rather than being baked into the layout.
+//! Holds each row in both the form this crate reasons about and the form Slint binds to, so a
+//! highlight can change without either being rebuilt.
 //!
-//! One layout serves both panes of a split view. Each reads its own side of every entry, which
-//! is why a filler is simply the side that was absent rather than a row pretending to be one.
-//!
-//! Still no pixels. A column becomes a position on screen by multiplying by the character
-//! advance, and that happens in the markup.
+//! Nothing here asks where the rows came from. A laid-out diff and a plain file listing arrive
+//! by the same door.
 
 // == Std crates
 use std::mem;
 use std::rc::Rc;
 
 // == External Crates
-use slint::{Model, ModelRc, SharedString, VecModel};
+use slint::{Model, ModelRc, VecModel};
 
 // == Internal Crates
-use crate::diff::layout::{GapState, Layout, Line, Row};
-use crate::diff::model::{FileDiff, LineEnding, LineKind, LineRef};
-use crate::highlight::{DisplayColumnExtent, Highlight, HighlightKind};
-use crate::span::Side;
-use crate::text::{render_line, RenderOptions};
+use crate::diff::layout::GapState;
 use crate::ui;
-
-/// How many numbers a gutter can show at once.
-///
-/// Two, because that is what an inline diff needs and nothing here wants more. The cap lives
-/// at this level on purpose: a layout has no opinion about gutters, and the widget struct
-/// carries two plain integers rather than a list, which would cost every row an allocation to
-/// hold what fits in eight bytes.
-pub const GUTTER_COLUMNS: usize = 2;
-
-/// Which part of a layout a pane shows.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pane {
-    /// One column showing both files, with two numbers against an unchanged line.
-    Inline,
-    /// The left file only, as one side of a split view.
-    Left,
-    /// The right file only.
-    Right,
-}
-
-/// What a row draws as.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RowKind {
-    /// Names the file.
-    Header,
-    /// Unchanged content, shown to give the change context.
-    Context,
-    Added,
-    Removed,
-    /// Content that exists but is not shown.
-    Gap,
-    /// Nothing on this side. Keeps the two panes of a split view in step.
-    Filler,
-}
-
-/// One row as a pane will draw it.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct DisplayedRow {
-    pub kind: RowKind,
-    /// Gutter numbers, in the order the view draws them. A pane showing one file fills only
-    /// the first.
-    pub numbers: [Option<u32>; GUTTER_COLUMNS],
-    /// Which file names this row and the number it has there, for describing a selection over
-    /// it. Absent on rows that stand for no line.
-    ///
-    /// Settled here rather than asked for later, because a pane knows which file it is showing
-    /// and an entry knows which side a line came from.
-    pub id: Option<(Side, u32)>,
-    /// The line this row was rendered from, for anything needing the original text.
-    pub source: Option<LineRef>,
-    /// Display text, tabs already expanded. Empty for fillers and gaps.
-    pub text: SharedString,
-    /// Columns the text occupies.
-    pub columns: u32,
-    /// How many lines a gap is hiding. Zero for every other kind.
-    pub hidden_count: u32,
-    /// Only meaningful on a gap.
-    pub gap_state: GapState,
-    /// A gap's hunk heading, or why its fetch failed. Empty otherwise.
-    pub note: SharedString,
-    /// Where a gap's hidden run starts, on each side.
-    pub gap_start: (u32, u32),
-    /// The run of a gap being fetched, numbered on the right, when one is.
-    pub pending: Option<(u32, u32)>,
-    /// Whether a selection may cover this row. Gaps and headers break a selection; a filler
-    /// does not, being a real position in a pane that simply holds no line.
-    pub selectable: bool,
-}
-
-impl DisplayedRow {
-    /// One line of ordinary content, numbered and selectable.
-    ///
-    /// What a view showing a plain file builds its rows from, rather than going through a
-    /// layout that exists to describe a change.
-    ///
-    /// `ending` is how the line was terminated in the file, which the text alone cannot say
-    /// once the terminator has been split off. `text::split_lines` reports both together.
-    pub fn line(
-        number: u32,
-        side: Side,
-        text: &str,
-        ending: LineEnding,
-        opts: &RenderOptions,
-    ) -> Self {
-        let (rendered, columns) = render_line(text, ending, opts);
-        DisplayedRow {
-            numbers: [Some(number), None],
-            id: Some((side, number)),
-            text: rendered.as_str().into(),
-            columns: columns as u32,
-            selectable: true,
-            ..DisplayedRow::blank(RowKind::Context)
-        }
-    }
-
-    fn blank(kind: RowKind) -> Self {
-        DisplayedRow {
-            kind,
-            numbers: [None; GUTTER_COLUMNS],
-            id: None,
-            source: None,
-            text: SharedString::new(),
-            columns: 0,
-            hidden_count: 0,
-            gap_state: GapState::Hidden,
-            note: SharedString::new(),
-            gap_start: (0, 0),
-            pending: None,
-            selectable: false,
-        }
-    }
-}
+use crate::view::row::{DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind, RowKind};
 
 /// The rows a pane is showing, in both the form this crate reasons about and the form the
 /// widget draws, kept together so highlights can change without either being rebuilt.
@@ -153,25 +33,6 @@ pub struct RowModel {
 }
 
 impl RowModel {
-    /// Renders one pane's worth of a layout.
-    pub fn new(layout: &Layout, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Self {
-        let rows: Vec<DisplayedRow> = layout
-            .rows
-            .iter()
-            .map(|entry| display(entry, file, opts, pane))
-            .collect();
-
-        let longest_line_columns = rows.iter().map(|r| r.columns).max().unwrap_or(0) as i32;
-        let converted: Vec<ui::DiffRow> = rows.iter().map(|r| r.into()).collect();
-
-        RowModel {
-            rows,
-            model: Rc::new(VecModel::from(converted)),
-            longest_line_columns,
-            drawn: Vec::new(),
-        }
-    }
-
     /// Builds a pane from rows supplied directly.
     ///
     /// The route for content that is not a diff. Everything a pane does past this point, the
@@ -252,91 +113,6 @@ impl RowModel {
         row.highlights = to_slint_highlights(highlights);
         self.model.set_row_data(index, row);
         true
-    }
-}
-
-/// Renders one entry as this pane sees it.
-fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> DisplayedRow {
-    match entry {
-        Row::Header => DisplayedRow {
-            text: file.display_path().into(),
-            columns: file.display_path().chars().count() as u32,
-            ..DisplayedRow::blank(RowKind::Header)
-        },
-
-        Row::Gap {
-            left_start,
-            right_start,
-            hidden,
-            state,
-            pending,
-            heading,
-            reason,
-        } => {
-            // A failure explains itself; otherwise the heading names what follows.
-            let note = reason.as_deref().or(heading.as_deref()).unwrap_or_default();
-            DisplayedRow {
-                hidden_count: *hidden,
-                gap_state: *state,
-                note: note.into(),
-                gap_start: (*left_start, *right_start),
-                pending: *pending,
-                ..DisplayedRow::blank(RowKind::Gap)
-            }
-        }
-
-        Row::Lines(diff_row) => {
-            let shown = match pane {
-                Pane::Left => diff_row.left,
-                Pane::Right => diff_row.right,
-                // Inline draws one line per entry, so whichever side is present is the one to
-                // draw. An unchanged line is on both and either gives the same text.
-                Pane::Inline => diff_row.left.or(diff_row.right),
-            };
-
-            let Some(row) = shown else {
-                return DisplayedRow::blank(RowKind::Filler);
-            };
-            let Some(line) = file.line(row.source) else {
-                return DisplayedRow::blank(RowKind::Filler);
-            };
-
-            let (text, columns) = render_line(&line.text, line.line_ending, opts);
-            let side = match line.kind {
-                LineKind::Removed => Side::Left,
-                LineKind::Added => Side::Right,
-                // An unchanged line is in both files, so which one names it is decided by the
-                // pane. An inline view means the right, being the file as it stands now.
-                LineKind::Context => match pane {
-                    Pane::Left => Side::Left,
-                    Pane::Inline | Pane::Right => Side::Right,
-                },
-            };
-
-            DisplayedRow {
-                kind: match line.kind {
-                    LineKind::Context => RowKind::Context,
-                    LineKind::Added => RowKind::Added,
-                    LineKind::Removed => RowKind::Removed,
-                },
-                numbers: gutter(diff_row.left, diff_row.right, pane),
-                id: Some((side, row.line)),
-                source: Some(row.source),
-                text: text.as_str().into(),
-                columns: columns as u32,
-                selectable: true,
-                ..DisplayedRow::blank(RowKind::Context)
-            }
-        }
-    }
-}
-
-/// The numbers this pane's gutter shows for an entry.
-fn gutter(left: Option<Line>, right: Option<Line>, pane: Pane) -> [Option<u32>; GUTTER_COLUMNS] {
-    match pane {
-        Pane::Inline => [left.map(|r| r.line), right.map(|r| r.line)],
-        Pane::Left => [left.map(|r| r.line), None],
-        Pane::Right => [right.map(|r| r.line), None],
     }
 }
 
@@ -464,8 +240,12 @@ impl From<RowKind> for ui::DiffRowKind {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::layout::Layout;
     use crate::diff::layout::{build_inline, build_split, RowOptions};
+    use crate::diff::render::{render_diff, Pane};
+    use crate::span::Side;
     use crate::test_fixtures::{file, shown};
+    use crate::text::RenderOptions;
     use std::ops::Range;
 
     fn kinds(rows: &[DisplayedRow]) -> Vec<RowKind> {
@@ -492,7 +272,7 @@ mod tests {
     fn the_tab_width_flows_through_to_row_text() {
         let f = file();
         let layout = build_inline(&f, &RowOptions::default());
-        let wide = RowModel::new(
+        let wide = RowModel::from_rows(render_diff(
             &layout,
             &f,
             &RenderOptions {
@@ -500,7 +280,7 @@ mod tests {
                 ..RenderOptions::default()
             },
             Pane::Inline,
-        );
+        ));
         let removed = wide
             .rows()
             .iter()
@@ -515,7 +295,7 @@ mod tests {
         let f = file();
         let layout = build_inline(&f, &RowOptions::default());
         let opts = RenderOptions::default();
-        let model = RowModel::new(&layout, &f, &opts, Pane::Inline);
+        let model = RowModel::from_rows(render_diff(&layout, &f, &opts, Pane::Inline));
 
         let longest = model
             .rows()
@@ -539,8 +319,8 @@ mod tests {
         let layout = build_split(&f, &RowOptions::default());
         let opts = RenderOptions::default();
 
-        let left = RowModel::new(&layout, &f, &opts, Pane::Left);
-        let right = RowModel::new(&layout, &f, &opts, Pane::Right);
+        let left = RowModel::from_rows(render_diff(&layout, &f, &opts, Pane::Left));
+        let right = RowModel::from_rows(render_diff(&layout, &f, &opts, Pane::Right));
 
         assert!(
             right.longest_line_columns() > left.longest_line_columns(),
@@ -565,12 +345,12 @@ mod tests {
     fn an_empty_layout_measures_zero() {
         let f = file();
         assert_eq!(
-            RowModel::new(
+            RowModel::from_rows(render_diff(
                 &Layout::default(),
                 &f,
                 &RenderOptions::default(),
                 Pane::Inline
-            )
+            ))
             .longest_line_columns(),
             0
         );
@@ -741,7 +521,12 @@ mod tests {
     fn model() -> RowModel {
         let f = file();
         let layout = build_inline(&f, &RowOptions::default());
-        RowModel::new(&layout, &f, &RenderOptions::default(), Pane::Inline)
+        RowModel::from_rows(render_diff(
+            &layout,
+            &f,
+            &RenderOptions::default(),
+            Pane::Inline,
+        ))
     }
 
     #[test]

@@ -14,49 +14,12 @@
 
 // == Std
 use std::collections::HashMap;
-use std::ops::Range;
 
 // == Internal Crates
 use crate::diff::model::FileDiff;
 use crate::span::{LineSpan, Side, SourceCharExtent};
 use crate::text::{display_column_of, map_span, RenderOptions};
-use crate::view::DisplayedRow;
-
-/// Why a range is drawn, which is what picks the colour.
-///
-/// WIP: becomes an open set of channels, each with its own style configured on the view, so a
-/// host can add its own kinds without this enum knowing about them. The two here are what the
-/// current callers need.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum HighlightKind {
-    /// What the user is selecting now.
-    Selection,
-    /// Supplied from outside: a stored selection, or something a host is pointing at.
-    Marked,
-}
-
-/// How much of one row a highlight covers, in the columns the grid is drawn on.
-///
-/// The same two cases as `SourceCharExtent`, converted through `map_span`. Kept as a separate
-/// type rather than shared: these are the coordinates the view works in, and they move when
-/// the tab width or the whitespace options change.
-///
-/// Columns, not pixels. Turning a column into a position on screen is a multiplication by the
-/// character advance, and that happens in the markup; nothing in this crate knows a pixel.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub enum DisplayColumnExtent {
-    /// Columns `range` of the row.
-    Columns(Range<u32>),
-    /// From `from` to the edge of the pane, which is how a covered line ending is shown.
-    ToEnd { from: u32 },
-}
-
-/// A range to paint behind one row's text.
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Highlight {
-    pub extent: DisplayColumnExtent,
-    pub kind: HighlightKind,
-}
+use crate::view::{DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind};
 
 /// Where to draw a set of spans, as a highlight against the row that carries each line.
 ///
@@ -118,9 +81,10 @@ pub fn to_highlights(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::render::{render_diff, Pane};
     use crate::selection::{to_spans, Caret, Selection};
     use crate::test_fixtures::{file, inline, removed_row, rows};
-    use crate::view::{Pane, RowModel};
+    use crate::view::RowModel;
 
     fn caret(row: usize, column: u32) -> Caret {
         Caret { row, column }
@@ -164,7 +128,7 @@ mod tests {
             ..RenderOptions::default()
         };
 
-        let before = RowModel::new(&layout, &f, &plain, Pane::Inline)
+        let before = RowModel::from_rows(render_diff(&layout, &f, &plain, Pane::Inline))
             .rows()
             .to_vec();
         let row = removed_row(&before);
@@ -178,7 +142,7 @@ mod tests {
             },
         );
 
-        let after = RowModel::new(&layout, &f, &visible, Pane::Inline)
+        let after = RowModel::from_rows(render_diff(&layout, &f, &visible, Pane::Inline))
             .rows()
             .to_vec();
         let drawn = to_highlights(&after, &f, &visible, &spans, HighlightKind::Marked);

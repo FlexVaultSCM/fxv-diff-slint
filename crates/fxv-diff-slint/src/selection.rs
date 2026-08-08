@@ -157,9 +157,10 @@ pub fn to_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::diff::render::Pane;
     use crate::span::Side;
     use crate::test_fixtures::{file, removed_row, rows, shown, split};
-    use crate::view::{Pane, RowKind};
+    use crate::view::RowKind;
 
     fn caret(row: usize, column: u32) -> Caret {
         Caret { row, column }

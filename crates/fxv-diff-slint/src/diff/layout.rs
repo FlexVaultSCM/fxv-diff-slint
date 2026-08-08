@@ -428,7 +428,8 @@ impl<'a> GapWalker<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::model::{FileChange, FileContent, LineEnding, LineOrigin};
+    use crate::diff::model::{FileChange, FileContent, LineOrigin};
+    use crate::text::LineEnding;
 
     fn line(kind: LineKind, left: Option<u32>, right: Option<u32>, text: &str) -> DiffLine {
         DiffLine {

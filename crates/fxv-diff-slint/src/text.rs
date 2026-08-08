@@ -18,7 +18,6 @@ use std::{iter, ops::Range, str::Chars};
 use unicode_width::UnicodeWidthChar;
 
 // == Internal Crates
-use crate::diff::model::LineEnding;
 
 /// How many columns a tab advances to.
 pub const DEFAULT_TAB_WIDTH: usize = 4;
@@ -164,6 +163,19 @@ fn rendered_capacity(source: &str, opts: &RenderOptions) -> usize {
 }
 
 /// Renders a line for display, and reports how many columns it occupies.
+/// How a line was terminated in the file it came from.
+///
+/// Kept because a viewer may want to show line endings, and because the two forms are
+/// otherwise indistinguishable once the terminator is stripped for display.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LineEnding {
+    Lf,
+    CrLf,
+    /// No terminator at all. Only the last line of a file can be like this, and diffs mark it
+    /// with `\ No newline at end of file`.
+    None,
+}
+
 /// Splits a document into lines, each with the terminator it ended on.
 ///
 /// `str::lines` is not enough for a viewer that can show line endings: it strips the terminator
