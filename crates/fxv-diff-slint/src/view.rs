@@ -99,8 +99,17 @@ impl DisplayedRow {
     ///
     /// What a view showing a plain file builds its rows from, rather than going through a
     /// layout that exists to describe a change.
-    pub fn line(number: u32, side: Side, text: &str, opts: &RenderOptions) -> Self {
-        let (rendered, columns) = render_line(text, LineEnding::None, opts);
+    ///
+    /// `ending` is how the line was terminated in the file, which the text alone cannot say
+    /// once the terminator has been split off. `text::split_lines` reports both together.
+    pub fn line(
+        number: u32,
+        side: Side,
+        text: &str,
+        ending: LineEnding,
+        opts: &RenderOptions,
+    ) -> Self {
+        let (rendered, columns) = render_line(text, ending, opts);
         DisplayedRow {
             numbers: [Some(number), None],
             id: Some((side, number)),

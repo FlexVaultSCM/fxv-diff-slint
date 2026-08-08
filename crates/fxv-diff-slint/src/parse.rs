@@ -17,9 +17,9 @@ use snafu::{ResultExt, Snafu};
 
 // == Internal Crates
 use crate::model::{
-    DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineEnding, LineKind,
-    LineOrigin,
+    DiffLine, DiffSet, FileChange, FileContent, FileDiff, FileMode, Hunk, LineKind, LineOrigin,
 };
+use crate::text::strip_terminator;
 
 /// Everything that can go wrong reading a diff.
 #[derive(Debug, Snafu)]
@@ -180,22 +180,6 @@ fn convert_hunk(hunk: &diffy::Hunk<'_, str>) -> Hunk {
     }
 }
 
-/// Splits off a trailing line terminator, reporting which one it was.
-///
-/// A carriage return counts as part of the terminator rather than as content: it is a
-/// line-ending artifact, and leaving it in renders as a stray glyph or a phantom column of
-/// whitespace. Which form it was is kept rather than discarded, so a viewer can show line
-/// endings without having to guess.
-fn strip_terminator(line: &str) -> (&str, LineEnding) {
-    match line.strip_suffix('\n') {
-        Some(rest) => match rest.strip_suffix('\r') {
-            Some(rest) => (rest, LineEnding::CrLf),
-            None => (rest, LineEnding::Lf),
-        },
-        None => (line, LineEnding::None),
-    }
-}
-
 /// Removes the `a/` and `b/` prefixes git puts on paths.
 ///
 /// Only those exact prefixes are removed. Plain `diff -u` output carries real paths that must
@@ -213,6 +197,7 @@ mod tests {
     use std::fs;
 
     use super::*;
+    use crate::model::LineEnding;
 
     /// Fixtures are real `git diff` and `diff -u` output, generated from an actual
     /// repository. Hand-writing them invites headers whose line counts do not match their

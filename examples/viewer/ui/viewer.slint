@@ -1,11 +1,17 @@
-import { Button, ComboBox } from "std-widgets.slint";
+import { Button, ComboBox, TabWidget } from "std-widgets.slint";
 import { DiffView, DiffScrollbar, DiffRow, DiffSide, DiffStyle, GapExpandRequest } from "@FxvDiff";
 
 export component MainWindow inherits Window {
-    in property <[string]> sample-names;
-    in property <[string]> file-names;
-    in-out property <int> current-sample;
-    in-out property <int> current-file;
+    // One flat list of every file in every sample, rather than picking a sample and then a
+    // file within it. Two pickers to reach one file was a step more than the content warranted.
+    in property <[string]> diff-names;
+    in-out property <int> current-diff;
+
+    // Plain files, shown by the same pane with no diff involved.
+    in property <[string]> plain-names;
+    in-out property <int> current-plain;
+    in property <[DiffRow]> plain-rows;
+    in property <int> plain-columns;
 
     in property <[DiffRow]> inline-rows;
     in property <int> inline-columns;
@@ -28,8 +34,8 @@ export component MainWindow inherits Window {
     // 0 shows nothing, 1 shows spaces and tabs, 2 adds line endings.
     in-out property <int> whitespace-mode: 0;
 
-    callback sample-changed(int);
-    callback file-changed(int);
+    callback diff-changed(int);
+    callback plain-changed(int);
     callback whitespace-changed();
     // Rows are built for whichever layout is on screen, so switching needs a rebuild.
     callback layout-changed();
@@ -57,6 +63,8 @@ export component MainWindow inherits Window {
     }
 
     VerticalLayout {
+        // Whitespace is about how any text is drawn, so it belongs to the window rather than
+        // to either tab.
         Rectangle {
             height: 40px;
             background: DiffStyle.gutter-background;
@@ -64,30 +72,7 @@ export component MainWindow inherits Window {
             HorizontalLayout {
                 padding: 6px;
                 spacing: 8px;
-
-                ComboBox {
-                    width: 220px;
-                    model: root.sample-names;
-                    current-index <=> root.current-sample;
-                    selected => {
-                        root.sample-changed(self.current-index);
-                        i-keys.focus();
-                    }
-                }
-
-                ComboBox {
-                    width: 340px;
-                    model: root.file-names;
-                    current-index <=> root.current-file;
-                    selected => {
-                        root.file-changed(self.current-index);
-                        i-keys.focus();
-                    }
-                }
-
-                Rectangle {
-                    horizontal-stretch: 1;
-                }
+                alignment: end;
 
                 Button {
                     text: root.whitespace-mode == 0 ? "Whitespace: off"
@@ -99,109 +84,174 @@ export component MainWindow inherits Window {
                         i-keys.focus();
                     }
                 }
-
-                Button {
-                    text: root.gap-expandable ? "Gaps: expandable" : "Gaps: static";
-                    clicked => {
-                        root.gap-expandable = !root.gap-expandable;
-                        i-keys.focus();
-                    }
-                }
-
-                Button {
-                    text: root.side-by-side ? "Side by side (Ctrl+B)" : "Inline (Ctrl+B)";
-                    clicked => {
-                        root.side-by-side = !root.side-by-side;
-                        root.layout-changed();
-                        i-keys.focus();
-                    }
-                }
             }
         }
 
-        if root.status != "": Rectangle {
-            Text {
-                text: root.status;
-                font-family: DiffStyle.font-family;
-                color: DiffStyle.gutter-text-color;
-                horizontal-alignment: center;
-                vertical-alignment: center;
-            }
-        }
+        TabWidget {
+            Tab {
+                title: "Standalone";
 
-        if root.status == "" && !root.side-by-side: DiffView {
-            rows: root.inline-rows;
-            longest-line-columns: root.inline-columns;
-            gap-expandable: root.gap-expandable;
-            scroll-y <=> root.shared-scroll-y;
-            scroll-x <=> root.shared-scroll-x;
+                VerticalLayout {
+                    Rectangle {
+                        height: 40px;
 
-            line-clicked(ref) => {
-                debug("line clicked", ref.side, ref.line);
-            }
-            gap-expand-requested(req) => {
-                root.gap-expand-requested(req);
-            }
+                        HorizontalLayout {
+                            padding: 6px;
+                            spacing: 8px;
 
-        }
+                            ComboBox {
+                                width: 360px;
+                                model: root.plain-names;
+                                current-index <=> root.current-plain;
+                                selected => {
+                                    root.plain-changed(self.current-index);
+                                    i-keys.focus();
+                                }
+                            }
 
-        // The panes and the bar that drives them share one conditional block: an id declared
-        // inside an `if` is not visible from a sibling one.
-        if root.status == "" && root.side-by-side: VerticalLayout {
-            HorizontalLayout {
-                spacing: 1px;
-
-                i-left := DiffView {
-                    rows: root.left-rows;
-                    longest-line-columns: root.split-columns;
-                    gap-expandable: root.gap-expandable;
-                            gutter-columns: 1;
-                    scroll-y <=> root.shared-scroll-y;
-                    scroll-x <=> root.shared-scroll-x;
-                            // One bar below drives both panes.
-                    show-horizontal-scrollbar: false;
-                    // Overrides the content-derived preference so the two panes split the
-                    // width evenly instead of sizing to their own longest line.
-                    preferred-width: 0px;
-
-                    line-clicked(ref) => {
-                        debug("left line clicked", ref.line);
-                    }
-                    gap-expand-requested(req) => {
-                        root.gap-expand-requested(req);
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+                        }
                     }
 
-                }
-
-                i-right := DiffView {
-                    rows: root.right-rows;
-                    longest-line-columns: root.split-columns;
-                    // The left pane carries the gap's controls and message for both.
-                    gap-expandable: false;
-                    gap-details: false;
-                    gutter-columns: 1;
-                    scroll-y <=> root.shared-scroll-y;
-                    scroll-x <=> root.shared-scroll-x;
-                            show-horizontal-scrollbar: false;
-                    preferred-width: 0px;
-
-                    line-clicked(ref) => {
-                        debug("right line clicked", ref.line);
+                    // The same pane, with no diff behind it: one number column, no gaps.
+                    DiffView {
+                        rows: root.plain-rows;
+                        longest-line-columns: root.plain-columns;
+                        gutter-columns: 1;
                     }
-                    gap-expand-requested(req) => {
-                        root.gap-expand-requested(req);
-                    }
-
                 }
             }
 
-            DiffScrollbar {
-                // Both panes are given the same longest-line count, so their scrollable
-                // widths match and either one describes the range.
-                scrollable-width: i-left.scrollable-width;
-                visible-width: i-left.visible-width;
-                scroll-x <=> root.shared-scroll-x;
+            Tab {
+                title: "Diff";
+
+                VerticalLayout {
+                    Rectangle {
+                        height: 40px;
+
+                        HorizontalLayout {
+                            padding: 6px;
+                            spacing: 8px;
+
+                            ComboBox {
+                                width: 420px;
+                                model: root.diff-names;
+                                current-index <=> root.current-diff;
+                                selected => {
+                                    root.diff-changed(self.current-index);
+                                    i-keys.focus();
+                                }
+                            }
+
+                            Rectangle {
+                                horizontal-stretch: 1;
+                            }
+
+                            Button {
+                                text: root.gap-expandable ? "Gaps: expandable" : "Gaps: static";
+                                clicked => {
+                                    root.gap-expandable = !root.gap-expandable;
+                                    i-keys.focus();
+                                }
+                            }
+
+                            Button {
+                                text: root.side-by-side ? "Side by side (Ctrl+B)"
+                                    : "Inline (Ctrl+B)";
+                                clicked => {
+                                    root.side-by-side = !root.side-by-side;
+                                    root.layout-changed();
+                                    i-keys.focus();
+                                }
+                            }
+                        }
+                    }
+
+                    if root.status != "": Rectangle {
+                        Text {
+                            text: root.status;
+                            font-family: DiffStyle.font-family;
+                            color: DiffStyle.gutter-text-color;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    if root.status == "" && !root.side-by-side: DiffView {
+                        rows: root.inline-rows;
+                        longest-line-columns: root.inline-columns;
+                        gap-expandable: root.gap-expandable;
+                        scroll-y <=> root.shared-scroll-y;
+                        scroll-x <=> root.shared-scroll-x;
+
+                        line-clicked(ref) => {
+                            debug("line clicked", ref.side, ref.line);
+                        }
+                        gap-expand-requested(req) => {
+                            root.gap-expand-requested(req);
+                        }
+                    }
+
+                    // The panes and the bar that drives them share one conditional block: an id
+                    // declared inside an `if` is not visible from a sibling one.
+                    if root.status == "" && root.side-by-side: VerticalLayout {
+                        HorizontalLayout {
+                            spacing: 1px;
+
+                            i-left := DiffView {
+                                rows: root.left-rows;
+                                longest-line-columns: root.split-columns;
+                                gap-expandable: root.gap-expandable;
+                                gutter-columns: 1;
+                                scroll-y <=> root.shared-scroll-y;
+                                scroll-x <=> root.shared-scroll-x;
+                                // One bar below drives both panes.
+                                show-horizontal-scrollbar: false;
+                                // Overrides the content-derived preference so the two panes split
+                                // the width evenly instead of sizing to their own longest line.
+                                preferred-width: 0px;
+
+                                line-clicked(ref) => {
+                                    debug("left line clicked", ref.line);
+                                }
+                                gap-expand-requested(req) => {
+                                    root.gap-expand-requested(req);
+                                }
+                            }
+
+                            i-right := DiffView {
+                                rows: root.right-rows;
+                                longest-line-columns: root.split-columns;
+                                // The left pane carries the gap's controls and message for both.
+                                gap-expandable: false;
+                                gap-details: false;
+                                gutter-columns: 1;
+                                scroll-y <=> root.shared-scroll-y;
+                                scroll-x <=> root.shared-scroll-x;
+                                show-horizontal-scrollbar: false;
+                                preferred-width: 0px;
+
+                                line-clicked(ref) => {
+                                    debug("right line clicked", ref.line);
+                                }
+                                gap-expand-requested(req) => {
+                                    root.gap-expand-requested(req);
+                                }
+                            }
+                        }
+
+                        DiffScrollbar {
+                            // Both panes are given the same longest-line count, so their
+                            // scrollable widths match and either one describes the range.
+                            scrollable-width: i-left.scrollable-width;
+                            visible-width: i-left.visible-width;
+                            scroll-x <=> root.shared-scroll-x;
+                        }
+                    }
                 }
+            }
         }
     }
 }

@@ -164,6 +164,33 @@ fn rendered_capacity(source: &str, opts: &RenderOptions) -> usize {
 }
 
 /// Renders a line for display, and reports how many columns it occupies.
+/// Splits a document into lines, each with the terminator it ended on.
+///
+/// `str::lines` is not enough for a viewer that can show line endings: it strips the terminator
+/// and does not say which one it was, so a CRLF file and an LF file come out identical and the
+/// last line of a file with no trailing newline is indistinguishable from one that has it.
+///
+/// A document ending in a newline yields no final empty line, because there is no line there.
+pub fn split_lines(source: &str) -> impl Iterator<Item = (&str, LineEnding)> {
+    source.split_inclusive('\n').map(strip_terminator)
+}
+
+/// Splits off a trailing line terminator, reporting which one it was.
+///
+/// A carriage return counts as part of the terminator rather than as content: it is a
+/// line-ending artifact, and leaving it in renders as a stray glyph or a phantom column of
+/// whitespace. Which form it was is kept rather than discarded, so a viewer can show line
+/// endings without having to guess.
+pub fn strip_terminator(line: &str) -> (&str, LineEnding) {
+    match line.strip_suffix('\n') {
+        Some(rest) => match rest.strip_suffix('\r') {
+            Some(rest) => (rest, LineEnding::CrLf),
+            None => (rest, LineEnding::Lf),
+        },
+        None => (line, LineEnding::None),
+    }
+}
+
 pub fn render_line(source: &str, ending: LineEnding, opts: &RenderOptions) -> (String, usize) {
     let mut text = String::with_capacity(rendered_capacity(source, opts));
     let mut columns = 0;
@@ -288,6 +315,43 @@ mod tests {
 
     fn plain() -> RenderOptions {
         RenderOptions::default()
+    }
+
+    #[test]
+    fn splitting_reports_the_terminator_each_line_ended_on() {
+        let split: Vec<(&str, LineEnding)> = split_lines("a\r\nb\nc").collect();
+        assert_eq!(
+            split,
+            vec![
+                ("a", LineEnding::CrLf),
+                ("b", LineEnding::Lf),
+                // No terminator, which is what `\ No newline at end of file` describes.
+                ("c", LineEnding::None),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_document_ending_in_a_newline_has_no_line_after_it() {
+        let split: Vec<(&str, LineEnding)> = split_lines("a\n").collect();
+        assert_eq!(split, vec![("a", LineEnding::Lf)]);
+        assert_eq!(split_lines("").count(), 0);
+    }
+
+    #[test]
+    fn a_split_line_still_renders_its_ending() {
+        let opts = RenderOptions {
+            show_line_endings: true,
+            ..RenderOptions::default()
+        };
+        // The point of reporting the terminator: rendering a line split out of a document has
+        // to show the same marker as rendering one that came from a diff.
+        let (line, ending) = split_lines("a\n").next().unwrap();
+        assert_eq!(
+            render_line(line, ending, &opts),
+            render_line("a", LineEnding::Lf, &opts)
+        );
+        assert!(render_line(line, ending, &opts).0.chars().count() > 1);
     }
 
     fn visible() -> RenderOptions {

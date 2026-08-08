@@ -44,7 +44,7 @@ pub mod view;
 
 pub use model::{
     DiffLine, DiffSet, Fetch, FetchState, FileChange, FileContent, FileDiff, FileMode, Hunk,
-    LineKind, LineOrigin,
+    LineEnding, LineKind, LineOrigin,
 };
 pub use parse::{parse_unified_diff, ParseError};
 pub use rows::{build_inline, build_split, GapState, Layout, Line, LinePair, Row, RowOptions};
@@ -54,7 +54,8 @@ pub use highlight::{to_highlights, DisplayColumnExtent, Highlight, HighlightKind
 pub use selection::{clamp_to_run, run_bounds, to_spans, Caret, Selection};
 pub use span::{LineSpan, Side, SourceCharExtent};
 pub use text::{
-    display_column_of, map_span, measure_line, render_line, source_index_at, RenderOptions,
+    display_column_of, map_span, measure_line, render_line, source_index_at, split_lines,
+    strip_terminator, RenderOptions,
 };
 pub use view::{DisplayedRow, Pane, RowKind, RowModel};
 

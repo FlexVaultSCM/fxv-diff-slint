@@ -15,7 +15,8 @@ use std::ops::Range;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind, RenderOptions, RowModel, Side,
+    DisplayColumnExtent, DisplayedRow, Highlight, HighlightKind, LineEnding, RenderOptions,
+    RowModel, Side,
 };
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
@@ -119,7 +120,7 @@ pub fn context_rows(count: u32) -> Vec<DisplayedRow> {
     let text = "x".repeat(COLUMNS as usize);
     let opts = RenderOptions::default();
     (1..=count)
-        .map(|n| DisplayedRow::line(n, Side::Right, &text, &opts))
+        .map(|n| DisplayedRow::line(n, Side::Right, &text, LineEnding::Lf, &opts))
         .collect()
 }
 
