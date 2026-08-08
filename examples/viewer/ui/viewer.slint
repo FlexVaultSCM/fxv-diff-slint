@@ -1,4 +1,4 @@
-import { Button, ComboBox, TabWidget } from "std-widgets.slint";
+import { Button, ComboBox, LineEdit, TabWidget } from "std-widgets.slint";
 import { DiffView, DiffScrollbar, DiffRow, DiffSide, DiffStyle, GapExpandRequest } from "@FxvDiff";
 
 export component MainWindow inherits Window {
@@ -34,9 +34,18 @@ export component MainWindow inherits Window {
     // 0 shows nothing, 1 shows spaces and tabs, 2 adds line endings.
     in-out property <int> whitespace-mode: 0;
 
+    // Which tab is showing. Read by the match count, which reports on whatever is on screen;
+    // both tabs are painted either way.
+    in-out property <int> current-tab: 0;
+
+    in-out property <string> search-query;
+    in property <int> diff-match-count;
+    in property <int> plain-match-count;
+
     callback diff-changed(int);
     callback plain-changed(int);
     callback whitespace-changed();
+    callback search-changed();
     // Rows are built for whichever layout is on screen, so switching needs a rebuild.
     callback layout-changed();
     // Forwarded from whichever view raised it; the host owns fetching the lines.
@@ -45,6 +54,18 @@ export component MainWindow inherits Window {
     // Ties the two panes together: both views bind to these, so moving either moves both.
     in-out property <length> shared-scroll-y: 0px;
     in-out property <length> shared-scroll-x: 0px;
+
+    // A channel this application defines for itself, past the two the library produces. A
+    // global's properties cannot be bound from outside it, but they can be assigned, and this
+    // is the moment to do it.
+    init => {
+        DiffStyle.channel-backgrounds = [
+            DiffStyle.selection-background,
+            DiffStyle.marked-background,
+            // Search matches.
+            #ff9800.transparentize(0.35),
+        ];
+    }
 
     title: "fxv-diff-slint viewer";
     preferred-width: 1300px;
@@ -72,7 +93,28 @@ export component MainWindow inherits Window {
             HorizontalLayout {
                 padding: 6px;
                 spacing: 8px;
-                alignment: end;
+
+                LineEdit {
+                    width: 260px;
+                    placeholder-text: "Find in this pane";
+                    text <=> root.search-query;
+                    edited => {
+                        root.search-changed();
+                    }
+                }
+
+                Text {
+                    text: root.search-query == "" ? ""
+                        : (root.current-tab == 0 ? root.plain-match-count
+                            : root.diff-match-count) + " matches";
+                    vertical-alignment: center;
+                    font-family: DiffStyle.font-family;
+                    color: DiffStyle.gutter-text-color;
+                }
+
+                Rectangle {
+                    horizontal-stretch: 1;
+                }
 
                 Button {
                     text: root.whitespace-mode == 0 ? "Whitespace: off"
@@ -88,6 +130,8 @@ export component MainWindow inherits Window {
         }
 
         TabWidget {
+            current-index <=> root.current-tab;
+
             Tab {
                 title: "Standalone";
 

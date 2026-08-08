@@ -292,13 +292,16 @@ pub fn map_span(source: &str, chars: Range<usize>, opts: &RenderOptions) -> Rang
     let mut end = None;
     let mut past_the_end = 0;
 
-    // Both ends in one walk, since they come from the same line.
+    // Both ends in one walk, since they come from the same line. Cells arrive in source order
+    // and the range's start is never past its end, so once the end is placed there is nothing
+    // left to find. `past_the_end` only matters when it was not, so it can stop being tracked.
     for (cell, _) in char_cells(source, opts) {
         if cell.source_index == chars.start {
             start = Some(cell.column);
         }
         if cell.source_index == chars.end {
             end = Some(cell.column);
+            break;
         }
         past_the_end = cell.column + cell.width;
     }
