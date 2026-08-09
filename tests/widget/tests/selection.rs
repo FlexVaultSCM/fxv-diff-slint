@@ -269,3 +269,14 @@ fn showing_different_rows_drops_the_selection() {
     assert_eq!(h.get_selection_focus().row, -1);
     assert!(painted(&h).is_empty(), "and nothing is drawn");
 }
+
+#[test]
+fn a_clicked_row_reports_the_line_it_names() {
+    // The row carries its own identity, so a click reports what the row says rather than what
+    // can be deduced from the kind of row it is.
+    let h = selectable(ROWS);
+
+    drag(&h, &[at(&h, 4, 2)]);
+
+    assert_eq!(h.get_clicked_line(), 5, "rows are numbered from one");
+}

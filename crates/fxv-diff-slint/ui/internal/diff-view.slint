@@ -4,7 +4,7 @@ import { GridMetrics } from "metrics.slint";
 import { PaneMath } from "pane-math.slint";
 import { DiffRowView } from "diff-row.slint";
 import {
-    DiffRow, DiffRowKind, DiffSide, DiffLineRef, PanePosition, PaneSelection, GapExpandRequest,
+    DiffRow, DiffLineRef, PanePosition, PaneSelection, GapExpandRequest,
 } from "types.slint";
 
 // A pane of monospace text showing a diff.
@@ -187,14 +187,10 @@ export component DiffView {
             }
 
             clicked => {
-                if (r.kind != DiffRowKind.gap) {
-                    root.line-clicked({
-                        side: r.kind == DiffRowKind.removed ? DiffSide.left
-                            : r.kind == DiffRowKind.added ? DiffSide.right
-                            : DiffSide.both,
-                        line: r.kind == DiffRowKind.removed ? r.left-line
-                            : r.right-line,
-                    });
+                // Only rows that name a line are worth reporting, and the row says whether it
+                // does. Nothing here works out what kind of row it is.
+                if (r.id-line > 0) {
+                    root.line-clicked({ side: r.id-side, line: r.id-line });
                 }
             }
 

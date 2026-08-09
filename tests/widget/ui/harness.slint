@@ -1,4 +1,4 @@
-import { CodeView, DiffView, DiffRow, PanePosition, DiffStyle } from "@FxvDiff";
+import { CodeView, DiffView, DiffRow, DiffSide, PanePosition, DiffStyle } from "@FxvDiff";
 
 // Windows of a known size around the view, so tests can reason about the viewport.
 //
@@ -34,6 +34,8 @@ export component Harness inherits Window {
     in-out property <PanePosition> selection-anchor <=> i-view.selection-anchor;
     in-out property <PanePosition> selection-focus <=> i-view.selection-focus;
     out property <int> finished-count: 0;
+    out property <int> clicked-line: -1;
+    out property <DiffSide> clicked-side;
 
     // The last gap request raised, so a test can assert what a click asked for. Negative
     // until something asks.
@@ -54,6 +56,10 @@ export component Harness inherits Window {
         selectable: root.selectable;
         selection-finished(selection) => {
             root.finished-count += 1;
+        }
+        line-clicked(ref) => {
+            root.clicked-line = ref.line;
+            root.clicked-side = ref.side;
         }
             rows: root.rows;
             longest-line-columns: root.longest-line-columns;

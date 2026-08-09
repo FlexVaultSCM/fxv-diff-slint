@@ -86,6 +86,14 @@ export struct DiffRow {
     // added line's left column, a gap, or a filler.
     left-line: int,
     right-line: int,
+    // Which document names this row and the line number it has there. A line of 0 means the
+    // row stands for no line at all, which a gap, a header and a filler all do; line numbers
+    // are 1-based, so it cannot collide with a real one.
+    //
+    // Settled by whatever built the row rather than worked out from the row's kind: a pane
+    // showing one side of a split knows which side that is, and a row cannot.
+    id-side: DiffSide,
+    id-line: int,
     // The line content, already tab-expanded, without the leading +/-/space marker. On a gap
     // row this is the hunk heading, or the reason a fetch failed.
     text: string,

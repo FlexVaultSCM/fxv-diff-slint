@@ -251,6 +251,9 @@ impl From<&DisplayedRow> for ui::DiffRow {
             } else {
                 row.text.clone()
             },
+            id_side: row.id.map_or(ui::DiffSide::Both, |(side, _)| side.into()),
+            // Zero means this row names no line. A row that does have one is 1-based.
+            id_line: row.id.map_or(0, |(_, line)| line) as i32,
             columns: row.columns as i32,
             hidden_count: row.hidden_count as i32,
             gap_state: row.gap_state.into(),
@@ -301,6 +304,15 @@ fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::DiffHighlight> {
         })
         .collect();
     ModelRc::from(Rc::new(VecModel::from(converted)))
+}
+
+impl From<Side> for ui::DiffSide {
+    fn from(side: Side) -> Self {
+        match side {
+            Side::Left => ui::DiffSide::Left,
+            Side::Right => ui::DiffSide::Right,
+        }
+    }
 }
 
 impl From<GapState> for ui::DiffGapState {

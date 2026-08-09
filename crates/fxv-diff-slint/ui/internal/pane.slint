@@ -3,7 +3,7 @@ import { DiffStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
 import { PaneMath } from "pane-math.slint";
 import { RowView } from "row.slint";
-import { DiffRow, DiffRowKind, DiffSide, DiffLineRef, PanePosition, PaneSelection } from "types.slint";
+import { DiffRow, DiffLineRef, PanePosition, PaneSelection } from "types.slint";
 
 // A pane of monospace text: line numbers, highlights, selection, and both axes scrolling.
 //
@@ -168,14 +168,10 @@ export component CodeView {
             }
 
             clicked => {
-                if (r.kind != DiffRowKind.gap) {
-                    root.line-clicked({
-                        side: r.kind == DiffRowKind.removed ? DiffSide.left
-                            : r.kind == DiffRowKind.added ? DiffSide.right
-                            : DiffSide.both,
-                        line: r.kind == DiffRowKind.removed ? r.left-line
-                            : r.right-line,
-                    });
+                // Only rows that name a line are worth reporting, and the row says whether it
+                // does. Nothing here works out what kind of row it is.
+                if (r.id-line > 0) {
+                    root.line-clicked({ side: r.id-side, line: r.id-line });
                 }
             }
         }
