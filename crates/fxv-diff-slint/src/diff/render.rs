@@ -10,7 +10,7 @@
 // == Internal Crates
 use super::layout::{Layout, Line, Row};
 use super::model::{FileDiff, LineKind};
-use crate::span::Side;
+use crate::span::Document;
 use crate::text::{render_line, RenderOptions};
 use crate::view::{DisplayedRow, Gap, RowClass, GUTTER_COLUMNS};
 
@@ -96,13 +96,13 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
 
             let (text, columns) = render_line(&line.text, line.line_ending, opts);
             let side = match line.kind {
-                LineKind::Removed => Side::Left,
-                LineKind::Added => Side::Right,
+                LineKind::Removed => Document::BEFORE,
+                LineKind::Added => Document::AFTER,
                 // An unchanged line is in both files, so which one names it is decided by the
                 // pane. An inline view means the right, being the file as it stands now.
                 LineKind::Context => match pane {
-                    Pane::Left => Side::Left,
-                    Pane::Inline | Pane::Right => Side::Right,
+                    Pane::Left => Document::BEFORE,
+                    Pane::Inline | Pane::Right => Document::AFTER,
                 },
             };
 

@@ -16,3 +16,13 @@ pub mod layout;
 pub mod model;
 pub mod parse;
 pub mod render;
+
+// == Internal Crates
+use crate::span::Document;
+
+impl Document {
+    /// The file as it was, which a diff shows on the left.
+    pub const BEFORE: Document = Document(0);
+    /// The file as it is, which a diff shows on the right.
+    pub const AFTER: Document = Document(1);
+}

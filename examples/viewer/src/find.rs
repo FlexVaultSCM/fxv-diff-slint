@@ -13,7 +13,7 @@ use std::ops::Range;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    map_span, Channel, DisplayColumnExtent, FileDiff, RenderOptions, RowModel, Side,
+    map_span, Channel, DisplayColumnExtent, Document, FileDiff, RenderOptions, RowModel,
 };
 
 // == Crate
@@ -135,8 +135,8 @@ pub fn diff_matches(
             // columns, and showing whitespace changes the count again. The conversion is the
             // same one a stored selection goes through.
             let columns = map_span(&line.text, chars.clone(), opts);
-            if let Some((side, number)) = displayed.id {
-                log_match(pane, row, side, number, &chars, &columns);
+            if let Some((document, number)) = displayed.id {
+                log_match(pane, row, document, number, &chars, &columns);
             }
             found.push((
                 row,
@@ -172,23 +172,22 @@ pub fn match_ranges(text: &str, query: &str) -> Vec<Range<usize>> {
 
 /// Reports one match on stderr, in both the durable form and the drawn one.
 ///
-/// The durable half is what a host would store: a side, a line number, and a character range,
-/// none of which move when a gap opens or the whitespace options change. The drawn half is the
-/// row and the columns it landed on, which do.
+/// The durable half is what a host would store: which document, a line number, and a character
+/// range, none of which move when a gap opens or the whitespace options change. The drawn half
+/// is the row and the columns it landed on, which do.
+///
+/// The document is printed as its number rather than a name, because the number is what a host
+/// stores and what it means is the row provider's business, not this logger's.
 pub fn log_match(
     pane: Which,
     row: usize,
-    side: Side,
+    document: Document,
     line: u32,
     chars: &Range<usize>,
     columns: &Range<usize>,
 ) {
-    let side = match side {
-        Side::Left => "left",
-        Side::Right => "right",
-    };
     eprintln!(
-        "find: pane={pane:?} span={side}:{line} chars={}..{} drawn at row={row} columns={}..{}",
-        chars.start, chars.end, columns.start, columns.end
+        "find: pane={pane:?} span=doc{}:{line} chars={}..{} drawn at row={row} columns={}..{}",
+        document.0, chars.start, chars.end, columns.start, columns.end
     );
 }

@@ -17,7 +17,7 @@ use slint::SharedString;
 // == Internal Crates
 use crate::diff::layout::GapState;
 use crate::diff::model::LineRef;
-use crate::span::Side;
+use crate::span::Document;
 use crate::text::LineEnding;
 use crate::text::{render_line, RenderOptions};
 
@@ -99,7 +99,7 @@ pub struct DisplayedRow {
     ///
     /// Settled here rather than asked for later, because a pane knows which file it is showing
     /// and an entry knows which side a line came from.
-    pub id: Option<(Side, u32)>,
+    pub id: Option<(Document, u32)>,
     /// The line this row was rendered from, for anything needing the original text.
     pub source: Option<LineRef>,
     /// Display text, tabs already expanded. Empty for fillers and gaps.
@@ -137,7 +137,7 @@ impl DisplayedRow {
     /// once the terminator has been split off. `text::split_lines` reports both together.
     pub fn line(
         number: u32,
-        side: Side,
+        document: Document,
         text: &str,
         ending: LineEnding,
         opts: &RenderOptions,
@@ -145,7 +145,7 @@ impl DisplayedRow {
         let (rendered, columns) = render_line(text, ending, opts);
         DisplayedRow {
             numbers: [Some(number), None],
-            id: Some((side, number)),
+            id: Some((document, number)),
             text: rendered.as_str().into(),
             columns: columns as u32,
             selectable: true,

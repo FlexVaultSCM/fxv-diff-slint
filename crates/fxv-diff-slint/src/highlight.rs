@@ -38,7 +38,7 @@ pub fn to_highlights(
     let rows = view.rows();
     let mut out = Vec::new();
     for span in spans {
-        let Some(index) = view.row_of(span.side, span.line) else {
+        let Some(index) = view.row_of(span.document, span.line) else {
             continue;
         };
         let Some(source) = rows[index].source else {
@@ -71,7 +71,7 @@ mod tests {
     use super::*;
     use crate::diff::render::{render_diff, Pane};
     use crate::selection::{to_spans, Caret, Selection};
-    use crate::span::Side;
+    use crate::span::Document;
     use crate::test_fixtures::{file, inline, inline_view, removed_row, rows};
     use crate::view::RowModel;
 
@@ -147,7 +147,7 @@ mod tests {
     fn a_span_naming_a_line_that_is_not_shown_is_dropped() {
         let f = file();
         let spans = vec![LineSpan {
-            side: Side::Right,
+            document: Document::AFTER,
             line: 9999,
             extent: SourceCharExtent::Columns(0..3),
         }];
@@ -166,7 +166,7 @@ mod tests {
         let opts = RenderOptions::default();
 
         let spans = vec![LineSpan {
-            side: Side::Left,
+            document: Document::BEFORE,
             line: 11,
             extent: SourceCharExtent::ToEnd { from: 1 },
         }];

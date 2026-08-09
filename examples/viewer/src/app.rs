@@ -10,8 +10,8 @@ use std::rc::Rc;
 // == Internal Crates
 use fxv_diff_slint::{
     build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines, DiffSet,
-    DisplayColumnExtent, DisplayedRow, Pane, PaneSelection, RenderOptions, RowModel, RowOptions,
-    Selection, Side,
+    DisplayColumnExtent, DisplayedRow, Document, Pane, PaneSelection, RenderOptions, RowModel,
+    RowOptions, Selection,
 };
 
 // == External Crates
@@ -166,12 +166,12 @@ impl App {
         let window = self.window();
         let render = self.render_options();
 
-        // One document, so every line is numbered once. `Side::Right` is what a viewer with
+        // One document, so every line is numbered once. `Document::ONLY` is what a viewer with
         // nothing to compare against uses: it is the file as it stands, not a former version.
         let rows: Vec<DisplayedRow> = split_lines(text)
             .enumerate()
             .map(|(i, (line, ending))| {
-                DisplayedRow::line(i as u32 + 1, Side::Right, line, ending, &render)
+                DisplayedRow::line(i as u32 + 1, Document::ONLY, line, ending, &render)
             })
             .collect();
 
@@ -306,7 +306,7 @@ impl App {
                     log_match(
                         Which::Plain,
                         row,
-                        Side::Right,
+                        Document::ONLY,
                         row as u32 + 1,
                         &chars,
                         &columns,

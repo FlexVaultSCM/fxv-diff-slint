@@ -3,7 +3,7 @@ import { DiffStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
 import { PaneMath } from "pane-math.slint";
 import { RowView } from "row.slint";
-import { DiffRow, DiffLineRef, PanePosition, PaneSelection } from "types.slint";
+import { DiffRow, PaneLineRef, PanePosition, PaneSelection } from "types.slint";
 
 // A pane of monospace text: line numbers, highlights, selection, and both axes scrolling.
 //
@@ -60,7 +60,7 @@ export component CodeView {
 
     /// Raised when a drag finishes, which is when the selection is worth resolving to spans.
     callback selection-finished(PaneSelection);
-    callback line-clicked(DiffLineRef);
+    callback line-clicked(PaneLineRef);
 
     i-metrics := GridMetrics { }
 
@@ -171,7 +171,7 @@ export component CodeView {
                 // Only rows that name a line are worth reporting, and the row says whether it
                 // does. Nothing here works out what kind of row it is.
                 if (r.id-line > 0) {
-                    root.line-clicked({ side: r.id-side, line: r.id-line });
+                    root.line-clicked({ document: r.id-document, line: r.id-line });
                 }
             }
         }

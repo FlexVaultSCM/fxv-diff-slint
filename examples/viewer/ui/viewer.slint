@@ -1,6 +1,6 @@
 import { Button, ComboBox, LineEdit, TabWidget } from "std-widgets.slint";
 import {
-    CodeView, DiffView, DiffScrollbar, DiffRow, PaneSelection, DiffSide, DiffStyle,
+    CodeView, DiffView, DiffScrollbar, DiffRow, PaneSelection, DiffStyle,
     GapExpandRequest,
 } from "@FxvDiff";
 
@@ -272,7 +272,7 @@ export component MainWindow inherits Window {
                         }
 
                         line-clicked(ref) => {
-                            debug("line clicked", ref.side, ref.line);
+                            debug("line clicked", ref.document, ref.line);
                         }
                         gap-expand-requested(req) => {
                             root.gap-expand-requested(req);

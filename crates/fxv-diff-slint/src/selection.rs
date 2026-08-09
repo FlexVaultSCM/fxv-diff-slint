@@ -146,7 +146,7 @@ pub fn to_spans(
     let mut spans = Vec::new();
     let last = end.row.min(rows.len().saturating_sub(1));
     for (index, row) in rows.iter().enumerate().take(last + 1).skip(start.row) {
-        let (Some(source), Some((side, line))) = (row.source, row.id) else {
+        let (Some(source), Some((document, line))) = (row.source, row.id) else {
             continue;
         };
         let Some(text) = file.line(source).map(|l| l.text.as_str()) else {
@@ -172,7 +172,11 @@ pub fn to_spans(
             SourceCharExtent::ToEnd { from }
         };
 
-        spans.push(LineSpan { side, line, extent });
+        spans.push(LineSpan {
+            document,
+            line,
+            extent,
+        });
     }
 
     spans
@@ -182,7 +186,7 @@ pub fn to_spans(
 mod tests {
     use super::*;
     use crate::diff::render::Pane;
-    use crate::span::Side;
+    use crate::span::Document;
     use crate::test_fixtures::{file, removed_row, rows, shown, split};
     use crate::view::RowClass;
 
@@ -202,7 +206,7 @@ mod tests {
 
         let spans = to_spans(&r, &f, &RenderOptions::default(), &selection);
         assert_eq!(spans.len(), 1);
-        assert_eq!(spans[0].side, Side::Left);
+        assert_eq!(spans[0].document, Document::BEFORE);
         assert_eq!(spans[0].line, 11);
     }
 
@@ -277,8 +281,8 @@ mod tests {
         );
 
         assert_eq!(
-            spans[0].side,
-            Side::Left,
+            spans[0].document,
+            Document::BEFORE,
             "an unchanged line selected in the left pane is about the left file"
         );
     }
@@ -301,7 +305,7 @@ mod tests {
             },
         );
 
-        assert_eq!(spans[0].side, Side::Right);
+        assert_eq!(spans[0].document, Document::AFTER);
     }
 
     #[test]
@@ -330,8 +334,8 @@ mod tests {
             },
         );
 
-        let sides: Vec<Side> = spans.iter().map(|s| s.side).collect();
-        assert_eq!(sides, vec![Side::Left, Side::Right]);
+        let sides: Vec<Document> = spans.iter().map(|s| s.document).collect();
+        assert_eq!(sides, vec![Document::BEFORE, Document::AFTER]);
     }
 
     #[test]

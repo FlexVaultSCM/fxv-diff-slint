@@ -18,23 +18,21 @@
 // == Std
 use std::ops::Range;
 
-/// Which file a line is numbered in.
+/// Which document a line number indexes into.
 ///
-/// **Serialise these as 0 for `Left` and 1 for `Right`.** A host storing spans should write
-/// those numbers rather than the names, and the reason is that this type is provisional. What
-/// a span really needs is to say which document its line number indexes into, and a diff
-/// happens to have two. The same machinery drives a viewer showing one document, where
-/// "left" and "right" are meaningless, so this becomes an identifier rather than a pair. Values
-/// written as 0 and 1 survive that; values written as "left" and "right" have to be migrated.
+/// A number rather than a name, because how many documents a pane is showing and what they mean
+/// is the business of whatever supplied its rows. A diff has two, a plain listing has one, and
+/// something showing three revisions side by side would have three.
 ///
-/// The wider generalisation is not just this type. A row carries a line number per side, a
-/// hidden count, a gap state, and a reference into a hunk, so a viewer with one document would
-/// leave most of a row inert. That is a change to make deliberately and all at once, not by
-/// renaming this in isolation.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum Side {
-    Left,
-    Right,
+/// **This number is the stored form.** A host writing a span down writes the number, so the
+/// meaning has to be fixed by whatever produces the rows and stay fixed. See `Document::BEFORE`
+/// and `Document::AFTER`, which are what a diff calls its two.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
+pub struct Document(pub u32);
+
+impl Document {
+    /// The only document, for a pane showing one.
+    pub const ONLY: Document = Document(0);
 }
 
 /// How much of one line a span covers, in that line's source characters.
@@ -58,7 +56,8 @@ pub enum SourceCharExtent {
 /// A run of characters on one line, named the way a file names it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LineSpan {
-    pub side: Side,
+    /// Which document `line` is numbered in.
+    pub document: Document,
     /// 1-based, matching the numbers the diff itself carries.
     pub line: u32,
     pub extent: SourceCharExtent,

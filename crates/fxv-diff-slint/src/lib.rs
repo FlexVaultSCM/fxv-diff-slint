@@ -55,7 +55,7 @@ pub use diff::render::{render_diff, Pane};
 // the ranges those are painted as. One module owns each.
 pub use highlight::to_highlights;
 pub use selection::{clamp_to_run, run_bounds, to_spans, Caret, Selection};
-pub use span::{LineSpan, Side, SourceCharExtent};
+pub use span::{Document, LineSpan, SourceCharExtent};
 pub use text::{
     display_column_of, map_span, measure_line, render_line, source_index_at, split_lines,
     strip_terminator, LineEnding, RenderOptions,
@@ -75,6 +75,6 @@ pub mod ui {
 }
 
 pub use ui::{
-    DiffGapState, DiffLayoutMode, DiffLineRef, DiffRow, DiffSide, DiffStyle, DiffView,
-    GapExpandRequest, PanePosition, PaneSelection,
+    DiffGapState, DiffLayoutMode, DiffRow, DiffStyle, DiffView, GapExpandRequest, PaneLineRef,
+    PanePosition, PaneSelection,
 };

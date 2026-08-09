@@ -15,7 +15,7 @@ use slint::{Model, ModelRc, VecModel};
 
 // == Internal Crates
 use crate::diff::layout::GapState;
-use crate::span::Side;
+use crate::span::Document;
 use crate::ui;
 use crate::view::row::{Channel, DisplayColumnExtent, DisplayedRow, Gap, Highlight};
 
@@ -30,7 +30,7 @@ pub struct RowModel {
     /// Built once, because the rows do not change while the model exists: opening a gap builds
     /// a new one. The first row wins where a line appears twice, which an inline view does for
     /// an unchanged line.
-    line_index: HashMap<(Side, u32), usize>,
+    line_index: HashMap<(Document, u32), usize>,
     /// What each channel is currently drawing, per channel, in row order.
     ///
     /// Kept so a change can write back only the rows whose ranges actually differ. Handing
@@ -73,8 +73,8 @@ impl RowModel {
     ///
     /// A pane of a split view holds one side, and a line inside a gap is not on screen, so a
     /// span naming either has no row here. That is ordinary rather than an error.
-    pub fn row_of(&self, side: Side, line: u32) -> Option<usize> {
-        self.line_index.get(&(side, line)).copied()
+    pub fn row_of(&self, document: Document, line: u32) -> Option<usize> {
+        self.line_index.get(&(document, line)).copied()
     }
 
     /// What the widget binds to.
@@ -244,7 +244,8 @@ impl From<&DisplayedRow> for ui::DiffRow {
             left_line: row.numbers[0].unwrap_or(0) as i32,
             right_line: row.numbers[1].unwrap_or(0) as i32,
             text: row.text.clone(),
-            id_side: row.id.map_or(ui::DiffSide::Both, |(side, _)| side.into()),
+            // Which document names this row. Meaningless when it names no line.
+            id_document: row.id.map_or(0, |(document, _)| document.0) as i32,
             // Zero means this row names no line. A row that does have one is 1-based.
             id_line: row.id.map_or(0, |(_, line)| line) as i32,
             columns: row.columns as i32,
@@ -309,15 +310,6 @@ fn gap_of(gap: &Gap) -> ui::DiffGap {
     }
 }
 
-impl From<Side> for ui::DiffSide {
-    fn from(side: Side) -> Self {
-        match side {
-            Side::Left => ui::DiffSide::Left,
-            Side::Right => ui::DiffSide::Right,
-        }
-    }
-}
-
 impl From<GapState> for ui::DiffGapState {
     fn from(state: GapState) -> Self {
         match state {
@@ -334,7 +326,7 @@ mod tests {
     use crate::diff::layout::Layout;
     use crate::diff::layout::{build_inline, build_split, RowOptions};
     use crate::diff::render::{render_diff, Pane};
-    use crate::span::Side;
+    use crate::span::Document;
     use crate::test_fixtures::{file, shown};
     use crate::text::RenderOptions;
     use crate::view::row::RowClass;
@@ -508,11 +500,11 @@ mod tests {
 
         let left = shown(&layout, &f, Pane::Left);
         let context = left.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
-        assert_eq!(context.id.unwrap().0, Side::Left);
+        assert_eq!(context.id.unwrap().0, Document::BEFORE);
 
         let right = shown(&layout, &f, Pane::Right);
         let context = right.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
-        assert_eq!(context.id.unwrap().0, Side::Right);
+        assert_eq!(context.id.unwrap().0, Document::AFTER);
     }
 
     #[test]
@@ -704,8 +696,8 @@ mod tests {
             .iter()
             .position(|r| r.id.is_some())
             .expect("the fixture shows some lines");
-        let (side, line) = view.rows()[row].id.unwrap();
+        let (document, line) = view.rows()[row].id.unwrap();
 
-        assert_eq!(view.row_of(side, line), Some(row));
+        assert_eq!(view.row_of(document, line), Some(row));
     }
 }

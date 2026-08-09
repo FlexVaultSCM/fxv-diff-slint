@@ -15,8 +15,8 @@ use std::ops::Range;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    Channel, DisplayColumnExtent, DisplayedRow, Gap, LineEnding, RenderOptions, RowClass, RowModel,
-    Side,
+    Channel, DisplayColumnExtent, DisplayedRow, Document, Gap, LineEnding, RenderOptions, RowClass,
+    RowModel,
 };
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
@@ -120,7 +120,7 @@ pub fn context_rows(count: u32) -> Vec<DisplayedRow> {
     let text = "x".repeat(COLUMNS as usize);
     let opts = RenderOptions::default();
     (1..=count)
-        .map(|n| DisplayedRow::line(n, Side::Right, &text, LineEnding::Lf, &opts))
+        .map(|n| DisplayedRow::line(n, Document::ONLY, &text, LineEnding::Lf, &opts))
         .collect()
 }
 
@@ -136,7 +136,7 @@ pub fn harness_ragged(count: u32) -> Harness {
     let rows: Vec<DisplayedRow> = (0..count)
         .map(|n| {
             let text = "x".repeat(n as usize);
-            DisplayedRow::line(n + 1, Side::Right, &text, LineEnding::Lf, &opts)
+            DisplayedRow::line(n + 1, Document::ONLY, &text, LineEnding::Lf, &opts)
         })
         .collect();
 

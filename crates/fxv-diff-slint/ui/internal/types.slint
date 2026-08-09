@@ -1,13 +1,6 @@
 // Types crossing the crate boundary. Everything here is re-exported from lib.slint and
 // becomes a public Rust type in fxv_diff_slint::ui.
 
-// Which side of the diff a line belongs to. Left is the pre-image, right is the post-image.
-export enum DiffSide {
-    left,
-    right,
-    // Context lines exist on both sides.
-    both,
-}
 
 
 // Why a gap's lines are not on screen. Only meaningful on a gap row.
@@ -104,7 +97,7 @@ export struct DiffRow {
     //
     // Settled by whatever built the row rather than worked out from the row's kind: a pane
     // showing one side of a split knows which side that is, and a row cannot.
-    id-side: DiffSide,
+    id-document: int,
     id-line: int,
     // The line content, already tab-expanded, without the leading +/-/space marker. On a gap
     // row this is the hunk heading, or the reason a fetch failed.
@@ -125,8 +118,9 @@ export struct DiffRow {
 
 // Identifies a line by side and line number rather than by row index, so it stays valid when
 // expanding a gap inserts rows above it.
-export struct DiffLineRef {
-    side: DiffSide,
+// A line a pane is showing: which document numbers it, and the number it has there.
+export struct PaneLineRef {
+    document: int,
     line: int,
 }
 
