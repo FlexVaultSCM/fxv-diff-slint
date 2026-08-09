@@ -1,4 +1,4 @@
-import { DiffStyle } from "style.slint";
+import { CodeStyle } from "style.slint";
 import { Probes } from "probes.slint";
 
 // Measures the monospace character cell that every other position in the widget is derived
@@ -18,7 +18,7 @@ import { Probes } from "probes.slint";
 // `ascent - descent` is exact and sub-pixel, and matches this probe to the last decimal for
 // the bundled font. Do not substitute it. Slint's line advance is `ascent - descent + leading`
 // and FontMetrics has no leading, so the two agree only for fonts with a zero line gap. Anyone
-// overriding DiffStyle.font-family with a font that has one would get rows a shade shorter than
+// overriding CodeStyle.font-family with a font that has one would get rows a shade shorter than
 // the text laid out inside them, and nothing would report the mismatch. The probe measures what
 // Slint actually does, whatever the font.
 //
@@ -46,14 +46,14 @@ export component GridMetrics {
 
         i-chars := Text {
             text: Probes.chars;
-            font-family: DiffStyle.font-family;
-            font-size: DiffStyle.font-size;
+            font-family: CodeStyle.font-family;
+            font-size: CodeStyle.font-size;
         }
 
         i-lines := Text {
             text: Probes.lines;
-            font-family: DiffStyle.font-family;
-            font-size: DiffStyle.font-size;
+            font-family: CodeStyle.font-family;
+            font-size: CodeStyle.font-size;
         }
     }
 
@@ -69,7 +69,7 @@ export component GridMetrics {
     // on screen.
     out property <length> advance: Math.ceil(root.raw-advance / 1px) * 1px;
     out property <length> row-height:
-        Math.ceil(root.raw-line-height / 1px) * 1px + DiffStyle.row-padding;
+        Math.ceil(root.raw-line-height / 1px) * 1px + CodeStyle.row-padding;
 
     // Applied to rendered lines so each character occupies exactly `advance`, keeping glyphs
     // on the same grid the highlight rectangles are positioned against however long the line.

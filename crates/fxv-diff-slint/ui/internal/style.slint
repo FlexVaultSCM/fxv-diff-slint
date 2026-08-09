@@ -7,13 +7,17 @@ import { Palette } from "std-widgets.slint";
 // The import is unconditional and costs 343 KB. It cannot be put behind a cargo feature: doing
 // so would mean generating this import statement, and a consuming crate re-parses these
 // sources without access to anything generated here. A consumer that would rather use its own
-// font can set DiffStyle.font-family, and then pays for a font it does not use.
+// font can set CodeStyle.font-family, and then pays for a font it does not use.
 import "../../fonts/DejaVuSansMono.ttf";
 
-// Appearance. Defaults derive from the std-widgets Palette so the widget follows the host
-// application's light or dark theme with no configuration. Every property is `in`, so a host
-// can override any of them from .slint or from Rust.
-export global DiffStyle {
+// How both panes look. Nothing here is about diffs: it is fonts, spacing, and the tables that
+// say what a row class and a highlight channel are drawn in, all of which a pane showing a
+// plain file needs just as much as one showing a change.
+//
+// Defaults derive from the std-widgets Palette so the widget follows the host application's
+// light or dark theme with no configuration. Every property is `in`, so a host can override any
+// of them from .slint or from Rust.
+export global CodeStyle {
     // == Font
     in property <string> font-family: "DejaVu Sans Mono";
     in property <length> font-size: 13px;

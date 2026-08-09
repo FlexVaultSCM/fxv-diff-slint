@@ -5,7 +5,7 @@
 //! Add the dependency and import the components in your `.slint`:
 //!
 //! ```slint,ignore
-//! import { DiffView, LinePair, DiffStyle } from "@FxvDiff";
+//! import { DiffView, LinePair, CodeStyle } from "@FxvDiff";
 //!
 //! export component MainWindow inherits Window {
 //!     in property <[LinePair]> rows;
@@ -29,7 +29,7 @@
 //!
 //! A monospace font is embedded and used by default. The widget positions line numbers,
 //! highlights and text on a character grid measured from the font, so a system font lookup
-//! would make that grid vary by platform. Setting [`DiffStyle`]'s `font-family` overrides it.
+//! would make that grid vary by platform. Setting [`CodeStyle`]'s `font-family` overrides it.
 
 pub mod diff;
 pub mod highlight;
@@ -75,6 +75,6 @@ pub mod ui {
 }
 
 pub use ui::{
-    DiffGapState, DiffLayoutMode, DiffRow, DiffStyle, DiffView, GapExpandRequest, PaneLineRef,
+    CodeStyle, DiffGapState, DiffLayoutMode, DiffRow, DiffView, GapExpandRequest, PaneLineRef,
     PanePosition, PaneSelection,
 };

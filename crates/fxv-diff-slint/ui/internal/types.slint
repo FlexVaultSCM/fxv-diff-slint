@@ -27,7 +27,7 @@ export struct DiffHighlight {
     // newline is what the rest of the row stands for.
     to-end: bool,
     // Which channel this belongs to, which is what picks its style. An open set: the numbers
-    // mean whatever the host decides, and DiffStyle carries one brush per channel.
+    // mean whatever the host decides, and CodeStyle carries one brush per channel.
     channel: int,
 }
 
@@ -79,7 +79,7 @@ export struct DiffGap {
 // side-by-side layouts differ only in how the list was built, not in how it is drawn.
 export struct DiffRow {
     // Which class of row this is, which picks its background. An open set: the numbers mean
-    // whatever produced the rows decides, and DiffStyle carries one brush per class.
+    // whatever produced the rows decides, and CodeStyle carries one brush per class.
     class: int,
     // Whether the gutter shows this row's numbers. A filler keeps its gutter but shows no
     // number, so the two panes of a split stay in step without it claiming a line.
@@ -144,7 +144,7 @@ export enum DiffLayoutMode {
 
 // The row classes this crate produces, by name.
 //
-// Mirrors `RowClass` in Rust, and the order of `DiffStyle.class-backgrounds`. Nothing enforces
+// Mirrors `RowClass` in Rust, and the order of `CodeStyle.class-backgrounds`. Nothing enforces
 // that the three agree, so a test asserts it.
 export global DiffRowClasses {
     out property <int> context: 0;

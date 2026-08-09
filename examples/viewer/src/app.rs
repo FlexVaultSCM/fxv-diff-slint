@@ -79,13 +79,13 @@ impl App {
     /// Built here rather than in the markup so that the constants above are the only place a
     /// channel's number is written down; an array literal is positional, and a list whose order has
     /// to agree with a constant somewhere else is a mistake waiting to happen. A host with fixed
-    /// channels can assign `DiffStyle.channel-backgrounds` from `.slint` instead, with no Rust.
+    /// channels can assign `CodeStyle.channel-backgrounds` from `.slint` instead, with no Rust.
     ///
     /// The library's own entries are read back rather than restated, so selection and marking keep
     /// whatever the style gives them.
     pub fn style_channels(&self) {
         let window = self.window();
-        let style = ui::DiffStyle::get(&window);
+        let style = ui::CodeStyle::get(&window);
         let mut brushes: Vec<Brush> = style.get_channel_backgrounds().iter().collect();
         brushes.resize(CURRENT.0 as usize + 1, Brush::default());
 

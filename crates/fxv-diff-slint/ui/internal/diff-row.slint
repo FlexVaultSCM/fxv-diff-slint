@@ -1,4 +1,4 @@
-import { DiffStyle } from "style.slint";
+import { CodeStyle } from "style.slint";
 import { DiffRow, DiffGapState, DiffRowClasses } from "types.slint";
 import { GapButton } from "gap-button.slint";
 import { RowView } from "row.slint";
@@ -66,15 +66,15 @@ export component DiffRowView inherits RowView {
     // usable: a few lines of extra context is the common need, not the whole span. When the
     // gap is no larger than a step there is only one thing to do, so only one control shows.
     if root.data.class == DiffRowClasses.gap && root.gap-details: HorizontalLayout {
-        x: -root.scroll-x + DiffStyle.gutter-padding;
+        x: -root.scroll-x + CodeStyle.gutter-padding;
         y: 0;
         height: parent.height;
-        spacing: DiffStyle.gutter-padding;
+        spacing: CodeStyle.gutter-padding;
         // Otherwise the group spreads across the row rather than sitting at the margin.
         alignment: start;
 
         if root.gap-openable && root.stepped: GapButton {
-            icon: DiffStyle.gap-expand-down-icon;
+            icon: CodeStyle.gap-expand-down-icon;
             label: root.step;
             busy: root.working(root.down-start, root.step);
             blocked: root.gap-blocked;
@@ -85,7 +85,7 @@ export component DiffRowView inherits RowView {
         }
 
         if root.gap-openable && root.stepped: GapButton {
-            icon: DiffStyle.gap-expand-up-icon;
+            icon: CodeStyle.gap-expand-up-icon;
             label: root.step;
             busy: root.working(root.up-start, root.step);
             blocked: root.gap-blocked;
@@ -99,7 +99,7 @@ export component DiffRowView inherits RowView {
         }
 
         if root.gap-openable: GapButton {
-            icon: DiffStyle.gap-expand-all-icon;
+            icon: CodeStyle.gap-expand-all-icon;
             label: root.data.gap.hidden-count;
             busy: root.working(root.down-start, root.data.gap.hidden-count);
             blocked: root.gap-blocked;
@@ -127,10 +127,10 @@ export component DiffRowView inherits RowView {
                     : root.gap-failed ? " could not be read"
                     : " hidden")
                 + (root.data.gap.note == "" ? "" : "    " + root.data.gap.note);
-            font-family: DiffStyle.font-family;
-            font-size: DiffStyle.font-size;
+            font-family: CodeStyle.font-family;
+            font-size: CodeStyle.font-size;
             letter-spacing: root.letter-spacing;
-            color: DiffStyle.text-color;
+            color: CodeStyle.text-color;
             vertical-alignment: center;
         }
     }

@@ -1,5 +1,5 @@
 import { ListView } from "std-widgets.slint";
-import { DiffStyle } from "style.slint";
+import { CodeStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
 import { PaneMath } from "pane-math.slint";
 import { DiffRowView } from "diff-row.slint";
@@ -82,7 +82,7 @@ export component DiffView {
     out property <int> columns-shown: max(1, root.gutter-columns);
     out property <length> gutter-width: root.show-line-numbers
         ? root.columns-shown * 4 * i-metrics.advance
-            + (root.columns-shown + 1) * DiffStyle.gutter-padding
+            + (root.columns-shown + 1) * CodeStyle.gutter-padding
         : 0px;
 
     out property <length> scrollable-width: root.gutter-width + root.content-width;

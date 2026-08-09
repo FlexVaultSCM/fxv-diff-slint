@@ -1,6 +1,6 @@
 import { Button, ComboBox, LineEdit, TabWidget } from "std-widgets.slint";
 import {
-    CodeView, DiffView, DiffScrollbar, DiffRow, PaneSelection, DiffStyle,
+    CodeView, DiffView, DiffScrollbar, DiffRow, PaneSelection, CodeStyle,
     GapExpandRequest,
 } from "@FxvDiff";
 
@@ -95,7 +95,7 @@ export component MainWindow inherits Window {
         // to either tab.
         Rectangle {
             height: 40px;
-            background: DiffStyle.gutter-background;
+            background: CodeStyle.gutter-background;
 
             HorizontalLayout {
                 padding: 6px;
@@ -136,8 +136,8 @@ export component MainWindow inherits Window {
                         : root.matches == 0 ? "no matches"
                         : root.at + " of " + root.matches;
                     vertical-alignment: center;
-                    font-family: DiffStyle.font-family;
-                    color: DiffStyle.gutter-text-color;
+                    font-family: CodeStyle.font-family;
+                    color: CodeStyle.gutter-text-color;
                 }
 
                 Rectangle {
@@ -251,8 +251,8 @@ export component MainWindow inherits Window {
                     if root.status != "": Rectangle {
                         Text {
                             text: root.status;
-                            font-family: DiffStyle.font-family;
-                            color: DiffStyle.gutter-text-color;
+                            font-family: CodeStyle.font-family;
+                            color: CodeStyle.gutter-text-color;
                             horizontal-alignment: center;
                             vertical-alignment: center;
                         }
@@ -351,4 +351,4 @@ export component MainWindow inherits Window {
     }
 }
 
-export { DiffStyle }
+export { CodeStyle }

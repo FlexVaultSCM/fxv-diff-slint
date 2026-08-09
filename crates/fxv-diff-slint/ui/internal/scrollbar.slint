@@ -1,4 +1,4 @@
-import { DiffStyle } from "style.slint";
+import { CodeStyle } from "style.slint";
 
 // Horizontal scrollbar for a diff view.
 //
@@ -27,7 +27,7 @@ export component DiffScrollbar {
     }
 
     Rectangle {
-        background: DiffStyle.gutter-background;
+        background: CodeStyle.gutter-background;
 
         i-drag := TouchArea {
             moved => {
@@ -47,7 +47,7 @@ export component DiffScrollbar {
                 ? max(24px, parent.width * (root.visible-width / root.scrollable-width))
                 : parent.width;
             height: parent.height;
-            background: DiffStyle.separator-color;
+            background: CodeStyle.separator-color;
         }
     }
 }

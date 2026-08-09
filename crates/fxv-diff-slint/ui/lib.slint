@@ -3,7 +3,7 @@
 
 import { CodeView } from "internal/pane.slint";
 import { DiffView } from "internal/diff-view.slint";
-import { DiffStyle } from "internal/style.slint";
+import { CodeStyle } from "internal/style.slint";
 import { DiffScrollbar } from "internal/scrollbar.slint";
 import {
     DiffRow,
@@ -27,7 +27,7 @@ import {
 // both. A consumer instantiating CodeView in its own markup is unaffected by that.
 export { DiffScrollbar }
 export { CodeView }
-export { DiffView, DiffStyle }
+export { DiffView, CodeStyle }
 export { DiffRow, DiffGapState, DiffRowClasses, DiffLayoutMode }
 export { DiffHighlight }
 // Pane vocabulary rather than diff vocabulary: both panes speak it.

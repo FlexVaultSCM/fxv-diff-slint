@@ -11,7 +11,7 @@ use fxv_diff_slint_tests::{harness, COLUMNS};
 /// rounded up, because the grid has to sit on whole pixels.
 const ADVANCE: f32 = 8.0;
 const ROW_HEIGHT: f32 = 16.0;
-/// DiffStyle.gutter-padding.
+/// CodeStyle.gutter-padding.
 const PADDING: f32 = 8.0;
 
 #[test]

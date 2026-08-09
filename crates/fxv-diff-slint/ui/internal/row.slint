@@ -1,4 +1,4 @@
-import { DiffStyle } from "style.slint";
+import { CodeStyle } from "style.slint";
 import { DiffRow, PanePosition } from "types.slint";
 
 // One rendered row of any pane: a gutter carrying line numbers, then the line body.
@@ -81,7 +81,7 @@ export component RowView {
         // A class with no entry draws nothing of its own, which is the same choice the
         // highlight channels make: an unstyled class in some arbitrary colour would read as
         // meaning something.
-        background: DiffStyle.class-backgrounds[root.data.class];
+        background: CodeStyle.class-backgrounds[root.data.class];
 
         i-touch := TouchArea {
             // An i-beam only where a drag would actually select something, so the pointer does
@@ -151,7 +151,7 @@ export component RowView {
             width: max(0px, (self.to - self.from) * root.advance)
                 + (self.takes-ending ? root.advance : 0px);
             height: parent.height;
-            background: DiffStyle.selection-background;
+            background: CodeStyle.selection-background;
         }
 
         // Ranges painted behind the text: what is selected, and whatever the host is
@@ -168,7 +168,7 @@ export component RowView {
                 ? parent.width - self.x
                 : (highlight.end - highlight.start) * root.advance;
             height: parent.height;
-            background: DiffStyle.channel-backgrounds[highlight.channel];
+            background: CodeStyle.channel-backgrounds[highlight.channel];
         }
 
         i-content := Text {
@@ -176,15 +176,15 @@ export component RowView {
             // describes the file rather than sitting in it, so it is pinned against the
             // visible left edge instead.
             x: root.data.full-width
-                ? -root.scroll-x + DiffStyle.gutter-padding
+                ? -root.scroll-x + CodeStyle.gutter-padding
                 : (root.show-line-numbers ? root.gutter-width : 0px);
             y: 0;
             height: parent.height;
             text: root.data.text;
-            font-family: DiffStyle.font-family;
-            font-size: DiffStyle.font-size;
+            font-family: CodeStyle.font-family;
+            font-size: CodeStyle.font-size;
             letter-spacing: root.letter-spacing;
-            color: DiffStyle.text-color;
+            color: CodeStyle.text-color;
             vertical-alignment: center;
         }
     }
@@ -193,12 +193,12 @@ export component RowView {
     if root.show-line-numbers && !root.data.full-width: i-gutter := Rectangle {
         x: -root.scroll-x;
         width: root.gutter-width;
-        background: DiffStyle.gutter-background;
+        background: CodeStyle.gutter-background;
 
         HorizontalLayout {
-            padding-left: DiffStyle.gutter-padding;
-            padding-right: DiffStyle.gutter-padding;
-            spacing: DiffStyle.gutter-padding;
+            padding-left: CodeStyle.gutter-padding;
+            padding-right: CodeStyle.gutter-padding;
+            spacing: CodeStyle.gutter-padding;
 
             if root.gutter-columns >= 1: i-number := Text {
                 width: 4 * root.advance;
@@ -211,9 +211,9 @@ export component RowView {
                 text: root.data.numbered && root.data.left-line > 0 ? root.data.left-line : "";
                 horizontal-alignment: right;
                 vertical-alignment: center;
-                font-family: DiffStyle.font-family;
-                font-size: DiffStyle.font-size;
-                color: DiffStyle.gutter-text-color;
+                font-family: CodeStyle.font-family;
+                font-size: CodeStyle.font-size;
+                color: CodeStyle.gutter-text-color;
             }
 
             if root.gutter-columns >= 2: i-number-2 := Text {
@@ -223,9 +223,9 @@ export component RowView {
                 text: root.data.numbered && root.data.right-line > 0 ? root.data.right-line : "";
                 horizontal-alignment: right;
                 vertical-alignment: center;
-                font-family: DiffStyle.font-family;
-                font-size: DiffStyle.font-size;
-                color: DiffStyle.gutter-text-color;
+                font-family: CodeStyle.font-family;
+                font-size: CodeStyle.font-size;
+                color: CodeStyle.gutter-text-color;
             }
         }
     }

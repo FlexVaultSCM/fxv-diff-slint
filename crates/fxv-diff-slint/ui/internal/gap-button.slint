@@ -1,5 +1,5 @@
 import { Spinner } from "std-widgets.slint";
-import { DiffStyle } from "style.slint";
+import { CodeStyle } from "style.slint";
 
 // A control on a gap row: an icon saying what it does, and a count saying how much.
 //
@@ -21,9 +21,9 @@ export component GapButton {
     out property <bool> active: !root.blocked && !root.busy;
 
     Rectangle {
-        background: i-touch.has-hover && root.active ? DiffStyle.gutter-background : transparent;
+        background: i-touch.has-hover && root.active ? CodeStyle.gutter-background : transparent;
         border-width: 1px;
-        border-color: DiffStyle.separator-color;
+        border-color: CodeStyle.separator-color;
         // Dimmed rather than hidden, so the row keeps its shape while a fetch runs.
         opacity: root.active ? 1.0 : 0.45;
 
@@ -35,23 +35,23 @@ export component GapButton {
         }
 
         HorizontalLayout {
-            padding-left: DiffStyle.gutter-padding;
-            padding-right: DiffStyle.gutter-padding;
-            spacing: DiffStyle.gutter-padding / 2;
+            padding-left: CodeStyle.gutter-padding;
+            padding-right: CodeStyle.gutter-padding;
+            spacing: CodeStyle.gutter-padding / 2;
             alignment: center;
 
             // Both occupy the same square, so swapping one for the other moves nothing.
             if !root.busy: Image {
                 source: root.icon;
-                width: DiffStyle.gap-icon-size;
+                width: CodeStyle.gap-icon-size;
                 height: self.width;
                 // Letterboxed, so an icon of any aspect ratio leaves the control the same size.
                 image-fit: contain;
-                colorize: DiffStyle.gutter-text-color;
+                colorize: CodeStyle.gutter-text-color;
             }
 
             if root.busy: Spinner {
-                width: DiffStyle.gap-icon-size;
+                width: CodeStyle.gap-icon-size;
                 height: self.width;
                 indeterminate: true;
             }
@@ -60,9 +60,9 @@ export component GapButton {
                 text: root.label;
                 horizontal-alignment: center;
                 vertical-alignment: center;
-                font-family: DiffStyle.font-family;
-                font-size: DiffStyle.font-size;
-                color: DiffStyle.gutter-text-color;
+                font-family: CodeStyle.font-family;
+                font-size: CodeStyle.font-size;
+                color: CodeStyle.gutter-text-color;
             }
         }
     }

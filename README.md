@@ -13,7 +13,7 @@ fxv-diff-slint = "0.1"
 ```
 
 ```slint
-import { DiffView, DiffRow, DiffStyle } from "@FxvDiff";
+import { DiffView, DiffRow, CodeStyle } from "@FxvDiff";
 
 export component MainWindow inherits Window {
     in property <[DiffRow]> rows;
