@@ -1,5 +1,5 @@
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind, DiffGapState } from "types.slint";
+import { DiffRow, DiffGapState, DiffRowClasses } from "types.slint";
 import { GapButton } from "gap-button.slint";
 import { RowView } from "row.slint";
 
@@ -29,15 +29,15 @@ export component DiffRowView inherits RowView {
     // Opening from one end only makes sense when a step leaves something behind.
     out property <bool> stepped: root.data.hidden-count > root.expand-step;
 
-    out property <bool> gap-waiting: root.data.kind == DiffRowKind.gap
+    out property <bool> gap-waiting: root.data.class == DiffRowClasses.gap
         && root.data.gap-state == DiffGapState.waiting;
-    out property <bool> gap-failed: root.data.kind == DiffRowKind.gap
+    out property <bool> gap-failed: root.data.class == DiffRowClasses.gap
         && root.data.gap-state == DiffGapState.failed;
 
     // Controls are drawn whenever a gap could be opened at all, in every state. A failure
     // leaves them exactly as they were, so retrying is clicking the same control again rather
     // than hunting for a different one, and the row never changes shape underneath a pointer.
-    out property <bool> gap-openable: root.data.kind == DiffRowKind.gap && root.gap-expandable;
+    out property <bool> gap-openable: root.data.class == DiffRowClasses.gap && root.gap-expandable;
     // Only this gap's controls stop while this gap is fetching. Another gap is another
     // request about other lines, and blocking it would be this row speaking for rows it knows
     // nothing about. A host that can only serve one at a time sets `gap-busy` to say so.
@@ -64,7 +64,7 @@ export component DiffRowView inherits RowView {
     // A gap can be opened a piece at a time from either end, which is what makes a large one
     // usable: a few lines of extra context is the common need, not the whole span. When the
     // gap is no larger than a step there is only one thing to do, so only one control shows.
-    if root.data.kind == DiffRowKind.gap && root.gap-details: HorizontalLayout {
+    if root.data.class == DiffRowClasses.gap && root.gap-details: HorizontalLayout {
         x: -root.scroll-x + DiffStyle.gutter-padding;
         y: 0;
         height: parent.height;
@@ -108,8 +108,11 @@ export component DiffRowView inherits RowView {
             }
         }
 
-        Text {
-            // How many lines the gap stands for and what is happening to them. `data.text` is
+        i-gap-text := Text {
+            // Read back by the widget tests, since what a band drew is otherwise invisible.
+            accessible-role: text;
+            accessible-label: self.text;
+            // How many lines the gap stands for and what is happening to them. `data.note` is
             // the hunk heading, or the reason a fetch failed, so this reads as
             // "12 hidden    fn thing()" or "12 could not be read    no such revision".
             // Kept at its natural width so a long failure message runs past the pane edge and
@@ -119,7 +122,7 @@ export component DiffRowView inherits RowView {
                 + (root.gap-waiting ? " loading"
                     : root.gap-failed ? " could not be read"
                     : " hidden")
-                + (root.data.text == "" ? "" : "    " + root.data.text);
+                + (root.data.note == "" ? "" : "    " + root.data.note);
             font-family: DiffStyle.font-family;
             font-size: DiffStyle.font-size;
             letter-spacing: root.letter-spacing;

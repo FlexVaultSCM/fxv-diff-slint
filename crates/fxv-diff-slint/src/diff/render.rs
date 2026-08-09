@@ -12,7 +12,7 @@ use super::layout::{Layout, Line, Row};
 use super::model::{FileDiff, LineKind};
 use crate::span::Side;
 use crate::text::{render_line, RenderOptions};
-use crate::view::{DisplayedRow, RowKind, GUTTER_COLUMNS};
+use crate::view::{DisplayedRow, RowClass, GUTTER_COLUMNS};
 
 /// Which part of a layout a pane shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -44,10 +44,13 @@ pub fn render_diff(
 /// Renders one entry as this pane sees it.
 fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> DisplayedRow {
     match entry {
+        // The file itself rather than a line in it, so it runs across the gutter and numbers
+        // nothing.
         Row::Header => DisplayedRow {
             text: file.display_path().into(),
             columns: file.display_path().chars().count() as u32,
-            ..DisplayedRow::blank(RowKind::Header)
+            full_width: true,
+            ..DisplayedRow::blank(RowClass::HEADER)
         },
 
         Row::Gap {
@@ -67,7 +70,9 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
                 note: note.into(),
                 gap_start: (*left_start, *right_start),
                 pending: *pending,
-                ..DisplayedRow::blank(RowKind::Gap)
+                // The band drawn over a gap takes the gutter with it, and a gap names no line.
+                full_width: true,
+                ..DisplayedRow::blank(RowClass::GAP)
             }
         }
 
@@ -81,10 +86,10 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
             };
 
             let Some(row) = shown else {
-                return DisplayedRow::blank(RowKind::Filler);
+                return DisplayedRow::blank(RowClass::FILLER);
             };
             let Some(line) = file.line(row.source) else {
-                return DisplayedRow::blank(RowKind::Filler);
+                return DisplayedRow::blank(RowClass::FILLER);
             };
 
             let (text, columns) = render_line(&line.text, line.line_ending, opts);
@@ -100,18 +105,19 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
             };
 
             DisplayedRow {
-                kind: match line.kind {
-                    LineKind::Context => RowKind::Context,
-                    LineKind::Added => RowKind::Added,
-                    LineKind::Removed => RowKind::Removed,
+                class: match line.kind {
+                    LineKind::Context => RowClass::CONTEXT,
+                    LineKind::Added => RowClass::ADDED,
+                    LineKind::Removed => RowClass::REMOVED,
                 },
+                numbered: true,
                 numbers: gutter(diff_row.left, diff_row.right, pane),
                 id: Some((side, row.line)),
                 source: Some(row.source),
                 text: text.as_str().into(),
                 columns: columns as u32,
                 selectable: true,
-                ..DisplayedRow::blank(RowKind::Context)
+                ..DisplayedRow::blank(RowClass::CONTEXT)
             }
         }
     }

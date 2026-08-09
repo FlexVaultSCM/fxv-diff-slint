@@ -29,6 +29,21 @@ export global DiffStyle {
     in property <brush> filler-background: Palette.color-scheme == ColorScheme.dark
         ? #1a1a1a : #f6f8fa;
 
+    // One background per row class, indexed by the class number a row carries. Replace the
+    // whole list to add classes: a host whose rows are not diff rows styles its own past the
+    // six this crate produces.
+    //
+    // The order is the contract, and it matches `RowClass` in Rust. A test asserts they agree,
+    // because nothing else would notice if they drifted.
+    in property <[brush]> class-backgrounds: [
+        root.context-background,
+        root.added-background,
+        root.removed-background,
+        root.gap-background,
+        root.filler-background,
+        root.context-background,
+    ];
+
     // == Intra-line highlight, drawn over the row background.
     // Stronger than the row tint on purpose: the row says "this line changed", these say
     // "these characters changed".

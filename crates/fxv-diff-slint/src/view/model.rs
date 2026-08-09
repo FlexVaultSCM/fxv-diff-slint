@@ -17,7 +17,7 @@ use slint::{Model, ModelRc, VecModel};
 use crate::diff::layout::GapState;
 use crate::span::Side;
 use crate::ui;
-use crate::view::row::{Channel, DisplayColumnExtent, DisplayedRow, Highlight, RowKind};
+use crate::view::row::{Channel, DisplayColumnExtent, DisplayedRow, Highlight, RowClass};
 
 /// The rows a pane is showing, in both the form this crate reasons about and the form the
 /// widget draws, kept together so highlights can change without either being rebuilt.
@@ -235,22 +235,24 @@ impl From<&DisplayedRow> for ui::DiffRow {
         // starts. Opening one has to say which lines to fetch, and that is the only thing it
         // has to say. Losing this makes every gap ask for line zero, so whichever one is
         // clicked, the first one opens.
-        let (left, right) = match row.kind {
-            RowKind::Gap => (row.gap_start.0, row.gap_start.1),
-            _ => (row.numbers[0].unwrap_or(0), row.numbers[1].unwrap_or(0)),
+        // A gap carries where its hidden run starts rather than a line of its own, and the
+        // controls need it to say what to fetch.
+        let (left, right) = if row.class == RowClass::GAP {
+            row.gap_start
+        } else {
+            (row.numbers[0].unwrap_or(0), row.numbers[1].unwrap_or(0))
         };
 
         ui::DiffRow {
-            kind: row.kind.into(),
+            class: row.class.0 as i32,
+            numbered: row.numbered,
+            full_width: row.full_width,
             // Zero means "no number in this column". Line numbers are 1-based, so it cannot
             // collide with a real one.
             left_line: left as i32,
             right_line: right as i32,
-            text: if row.kind == RowKind::Gap {
-                row.note.clone()
-            } else {
-                row.text.clone()
-            },
+            text: row.text.clone(),
+            note: row.note.clone(),
             id_side: row.id.map_or(ui::DiffSide::Both, |(side, _)| side.into()),
             // Zero means this row names no line. A row that does have one is 1-based.
             id_line: row.id.map_or(0, |(_, line)| line) as i32,
@@ -325,19 +327,6 @@ impl From<GapState> for ui::DiffGapState {
     }
 }
 
-impl From<RowKind> for ui::DiffRowKind {
-    fn from(kind: RowKind) -> Self {
-        match kind {
-            RowKind::Header => ui::DiffRowKind::Header,
-            RowKind::Context => ui::DiffRowKind::Context,
-            RowKind::Added => ui::DiffRowKind::Added,
-            RowKind::Removed => ui::DiffRowKind::Removed,
-            RowKind::Gap => ui::DiffRowKind::Gap,
-            RowKind::Filler => ui::DiffRowKind::Filler,
-        }
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -349,8 +338,8 @@ mod tests {
     use crate::text::RenderOptions;
     use std::ops::Range;
 
-    fn kinds(rows: &[DisplayedRow]) -> Vec<RowKind> {
-        rows.iter().map(|r| r.kind).collect()
+    fn kinds(rows: &[DisplayedRow]) -> Vec<RowClass> {
+        rows.iter().map(|r| r.class).collect()
     }
 
     // == Rendering
@@ -359,7 +348,7 @@ mod tests {
     fn tabs_are_expanded_in_row_text() {
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let removed = rows.iter().find(|r| r.kind == RowKind::Removed).unwrap();
+        let removed = rows.iter().find(|r| r.class == RowClass::REMOVED).unwrap();
 
         assert!(
             removed.text.starts_with("    "),
@@ -385,7 +374,7 @@ mod tests {
         let removed = wide
             .rows()
             .iter()
-            .find(|r| r.kind == RowKind::Removed)
+            .find(|r| r.class == RowClass::REMOVED)
             .unwrap();
 
         assert!(removed.text.starts_with("        "), "eight columns");
@@ -479,17 +468,17 @@ mod tests {
         // The fixture removes one line and adds one, so the sides are even and nothing is a
         // filler; the removal and the addition sit opposite each other.
         assert!(
-            !kinds(&right).contains(&RowKind::Filler),
+            !kinds(&right).contains(&RowClass::FILLER),
             "an even change needs no padding"
         );
-        assert!(kinds(&right).contains(&RowKind::Added));
+        assert!(kinds(&right).contains(&RowClass::ADDED));
     }
 
     #[test]
     fn an_inline_pane_numbers_both_columns_of_an_unchanged_line() {
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let context = rows.iter().find(|r| r.kind == RowKind::Context).unwrap();
+        let context = rows.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
 
         assert!(
             context.numbers[0].is_some() && context.numbers[1].is_some(),
@@ -516,11 +505,11 @@ mod tests {
         let layout = build_split(&f, &RowOptions::default());
 
         let left = shown(&layout, &f, Pane::Left);
-        let context = left.iter().find(|r| r.kind == RowKind::Context).unwrap();
+        let context = left.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
         assert_eq!(context.id.unwrap().0, Side::Left);
 
         let right = shown(&layout, &f, Pane::Right);
-        let context = right.iter().find(|r| r.kind == RowKind::Context).unwrap();
+        let context = right.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
         assert_eq!(context.id.unwrap().0, Side::Right);
     }
 
@@ -530,9 +519,13 @@ mod tests {
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
 
         for row in &rows {
-            match row.kind {
-                RowKind::Gap | RowKind::Header | RowKind::Filler => {
-                    assert!(!row.selectable, "{:?} is not part of a selection", row.kind);
+            match row.class {
+                RowClass::GAP | RowClass::HEADER | RowClass::FILLER => {
+                    assert!(
+                        !row.selectable,
+                        "{:?} is not part of a selection",
+                        row.class
+                    );
                     assert!(row.source.is_none());
                 }
                 _ => {
@@ -547,7 +540,7 @@ mod tests {
     fn a_gap_carries_what_it_needs_to_be_opened() {
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let gap = rows.iter().find(|r| r.kind == RowKind::Gap).unwrap();
+        let gap = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
 
         assert!(gap.hidden_count > 0);
         assert_eq!(gap.gap_start, (1, 1), "the hidden run starts at line one");
@@ -559,7 +552,7 @@ mod tests {
     fn a_missing_line_number_becomes_zero() {
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let added = rows.iter().find(|r| r.kind == RowKind::Added).unwrap();
+        let added = rows.iter().find(|r| r.class == RowClass::ADDED).unwrap();
         let converted = ui::DiffRow::from(added);
 
         assert_eq!(converted.left_line, 0, "absent in the left file");
@@ -573,7 +566,7 @@ mod tests {
         // clicking any of them opens the first.
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let gap = rows.iter().find(|r| r.kind == RowKind::Gap).unwrap();
+        let gap = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
         let converted = ui::DiffRow::from(gap);
 
         assert_eq!(
@@ -587,24 +580,9 @@ mod tests {
     fn a_gap_hands_over_its_note_rather_than_its_text() {
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let gap = rows.iter().find(|r| r.kind == RowKind::Gap).unwrap();
+        let gap = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
 
         assert_eq!(ui::DiffRow::from(gap).text, gap.note);
-    }
-
-    #[test]
-    fn every_kind_has_a_counterpart() {
-        for kind in [
-            RowKind::Header,
-            RowKind::Context,
-            RowKind::Added,
-            RowKind::Removed,
-            RowKind::Gap,
-            RowKind::Filler,
-        ] {
-            // Converting must not panic.
-            let _ = ui::DiffRowKind::from(kind);
-        }
     }
 
     // == Highlights

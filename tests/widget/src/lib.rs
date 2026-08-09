@@ -15,7 +15,7 @@ use std::ops::Range;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    Channel, DisplayColumnExtent, DisplayedRow, LineEnding, RenderOptions, RowKind, RowModel, Side,
+    Channel, DisplayColumnExtent, DisplayedRow, LineEnding, RenderOptions, RowClass, RowModel, Side,
 };
 
 // Machine-generated. `dead_code` because a consumer re-parses the library's .slint sources and
@@ -153,7 +153,12 @@ pub fn harness_with_gap(before: u32, after: u32) -> Harness {
     backend();
     let harness = Harness::new().expect("creating the harness window");
     let mut rows = context_rows(before);
-    rows.push(DisplayedRow::blank(RowKind::Gap));
+    rows.push(DisplayedRow {
+        // A gap that stands for something, so the band has both a count and a heading to draw.
+        hidden_count: 12,
+        note: "fn thing()".into(),
+        ..DisplayedRow::blank(RowClass::GAP)
+    });
     rows.extend(context_rows(after));
 
     let view = RowModel::from_rows(rows);

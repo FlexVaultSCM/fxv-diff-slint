@@ -29,25 +29,51 @@ use crate::text::{render_line, RenderOptions};
 /// hold what fits in eight bytes.
 pub const GUTTER_COLUMNS: usize = 2;
 
-/// What a row draws as.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RowKind {
-    /// Names the file.
-    Header,
-    /// Unchanged content, shown to give the change context.
-    Context,
-    Added,
-    Removed,
+/// What a row is, which is what picks how it is drawn.
+///
+/// An open set, like [`Channel`]. The view holds a background per class and the numbers mean
+/// whatever the thing producing the rows decides, so a pane can show classes of row this crate
+/// has never heard of. The six below are the ones a diff produces.
+///
+/// A class says how a row looks, not how it behaves. What the pane needs to know in order to
+/// lay a row out is stated on the row itself, in `numbered` and `full_width`, so that a class
+/// the pane has never seen still lays out correctly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct RowClass(pub u32);
+
+impl RowClass {
+    /// Unchanged content, shown to give a change context.
+    pub const CONTEXT: RowClass = RowClass(0);
+    pub const ADDED: RowClass = RowClass(1);
+    pub const REMOVED: RowClass = RowClass(2);
     /// Content that exists but is not shown.
-    Gap,
+    pub const GAP: RowClass = RowClass(3);
     /// Nothing on this side. Keeps the two panes of a split view in step.
-    Filler,
+    pub const FILLER: RowClass = RowClass(4);
+    /// Names the file rather than anything in it.
+    pub const HEADER: RowClass = RowClass(5);
+
+    /// The first class this crate does not use itself.
+    ///
+    /// A host numbers its own from here, so that this crate taking another class later cannot
+    /// collide with one already in use.
+    pub const FIRST_FREE: RowClass = RowClass(6);
 }
 
 /// One row as a pane will draw it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DisplayedRow {
-    pub kind: RowKind,
+    pub class: RowClass,
+    /// Whether the gutter shows this row's numbers.
+    ///
+    /// A filler keeps its gutter but shows no number: it stands opposite a real line in the
+    /// other pane, and losing the gutter would put the two panes out of step, but it names no
+    /// line of its own.
+    pub numbered: bool,
+    /// Whether this row's content runs across the gutter as well.
+    ///
+    /// For a row that is about the document rather than a line in it.
+    pub full_width: bool,
     /// Gutter numbers, in the order the view draws them. A pane showing one file fills only
     /// the first.
     pub numbers: [Option<u32>; GUTTER_COLUMNS],
@@ -110,7 +136,8 @@ impl DisplayedRow {
             text: rendered.as_str().into(),
             columns: columns as u32,
             selectable: true,
-            ..DisplayedRow::blank(RowKind::Context)
+            numbered: true,
+            ..DisplayedRow::blank(RowClass::CONTEXT)
         }
     }
 
@@ -118,9 +145,11 @@ impl DisplayedRow {
     ///
     /// The starting point for anything producing rows, so a provider states only the fields
     /// its content actually has and does not have to know what the rest default to.
-    pub fn blank(kind: RowKind) -> Self {
+    pub fn blank(class: RowClass) -> Self {
         DisplayedRow {
-            kind,
+            class,
+            numbered: false,
+            full_width: false,
             numbers: [None; GUTTER_COLUMNS],
             id: None,
             source: None,

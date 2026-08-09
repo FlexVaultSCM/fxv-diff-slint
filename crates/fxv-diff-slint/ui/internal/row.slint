@@ -1,5 +1,5 @@
 import { DiffStyle } from "style.slint";
-import { DiffRow, DiffRowKind, DiffGapState, PanePosition } from "types.slint";
+import { DiffRow, PanePosition } from "types.slint";
 
 // One rendered row of any pane: a gutter carrying line numbers, then the line body.
 //
@@ -54,15 +54,6 @@ export component RowView {
 
     // Rows that stand for content have line numbers; the rest do not. A filler has none
     // either, but it is still a line's worth of one side of the diff.
-    out property <bool> numbered: root.data.kind != DiffRowKind.gap
-        && root.data.kind != DiffRowKind.filler
-        && root.data.kind != DiffRowKind.header;
-
-    // Rows that are about the file rather than a line in it drop the gutter and run the full
-    // width. A filler must not: it stands opposite a real line in the other pane, and losing
-    // its gutter would put the two panes out of step.
-    out property <bool> spans-gutter: root.data.kind == DiffRowKind.gap
-        || root.data.kind == DiffRowKind.header;
 
     out property <length> full-width: root.gutter-width + root.content-width;
 
@@ -87,11 +78,10 @@ export component RowView {
         // the floor so a file of only short lines still paints across the pane.
         width: max(root.visible-width, root.full-width);
 
-        background: root.data.kind == DiffRowKind.added ? DiffStyle.added-background
-            : root.data.kind == DiffRowKind.removed ? DiffStyle.removed-background
-            : root.data.kind == DiffRowKind.gap ? DiffStyle.gap-background
-            : root.data.kind == DiffRowKind.filler ? DiffStyle.filler-background
-            : DiffStyle.context-background;
+        // A class with no entry draws nothing of its own, which is the same choice the
+        // highlight channels make: an unstyled class in some arbitrary colour would read as
+        // meaning something.
+        background: DiffStyle.class-backgrounds[root.data.class];
 
         i-touch := TouchArea {
             // An i-beam only where a drag would actually select something, so the pointer does
@@ -182,11 +172,11 @@ export component RowView {
         }
 
         // A gap describes itself alongside its controls instead, further down.
-        if root.data.kind != DiffRowKind.gap: i-content := Text {
+        i-content := Text {
             // Content sits to the right of the gutter and scrolls with the list. A header
             // describes the file rather than sitting in it, so it is pinned against the
             // visible left edge instead.
-            x: root.spans-gutter
+            x: root.data.full-width
                 ? -root.scroll-x + DiffStyle.gutter-padding
                 : (root.show-line-numbers ? root.gutter-width : 0px);
             y: 0;
@@ -201,7 +191,7 @@ export component RowView {
     }
 
     // Drawn last so the body passes behind it rather than showing through.
-    if root.show-line-numbers && !root.spans-gutter: i-gutter := Rectangle {
+    if root.show-line-numbers && !root.data.full-width: i-gutter := Rectangle {
         x: -root.scroll-x;
         width: root.gutter-width;
         background: DiffStyle.gutter-background;
@@ -220,7 +210,7 @@ export component RowView {
                 // Zero means this row has no number in that column. Gaps and fillers do carry
                 // numbers, since expanding a gap has to know where to read from, but showing
                 // one against a blank row would misdescribe it.
-                text: root.numbered && root.data.left-line > 0 ? root.data.left-line : "";
+                text: root.data.numbered && root.data.left-line > 0 ? root.data.left-line : "";
                 horizontal-alignment: right;
                 vertical-alignment: center;
                 font-family: DiffStyle.font-family;
@@ -232,7 +222,7 @@ export component RowView {
                 width: 4 * root.advance;
                 accessible-role: text;
                 accessible-label: self.text;
-                text: root.numbered && root.data.right-line > 0 ? root.data.right-line : "";
+                text: root.data.numbered && root.data.right-line > 0 ? root.data.right-line : "";
                 horizontal-alignment: right;
                 vertical-alignment: center;
                 font-family: DiffStyle.font-family;

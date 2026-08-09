@@ -7,7 +7,8 @@
 
 // == Internal Crates
 use fxv_diff_slint_tests::{
-    harness, harness_with_columns, harness_with_rows, settle, two_numbered_rows, Harness,
+    harness, harness_with_columns, harness_with_gap, harness_with_rows, settle, two_numbered_rows,
+    Harness,
 };
 
 /// Every number the gutter is showing, across both of its columns.
@@ -74,5 +75,60 @@ fn the_gutter_narrows_when_it_carries_one_column() {
     assert!(
         one.get_gutter_width() < wide,
         "one column is narrower than two"
+    );
+}
+
+#[test]
+fn the_row_classes_agree_across_the_boundary() {
+    // A class number is written down three times: as a Rust constant, as a name in the markup,
+    // and as a position in the style table. Nothing makes them agree, and a mismatch would show
+    // up as rows drawn in the wrong colour or a gap that stops being recognised as one, both a
+    // long way from the cause.
+    use fxv_diff_slint::RowClass;
+    use slint::Model;
+
+    let h = harness(1);
+    settle();
+
+    let named: Vec<i32> = h.get_class_numbers().iter().collect();
+    let expected = [
+        RowClass::CONTEXT,
+        RowClass::ADDED,
+        RowClass::REMOVED,
+        RowClass::GAP,
+        RowClass::FILLER,
+        RowClass::HEADER,
+        RowClass::FIRST_FREE,
+    ];
+    for (named, class) in named.iter().zip(expected) {
+        assert_eq!(
+            *named, class.0 as i32,
+            "{class:?} is numbered differently in the markup"
+        );
+    }
+
+    assert_eq!(
+        h.get_styled_classes(),
+        RowClass::FIRST_FREE.0 as i32,
+        "the style table should cover every class this crate produces, and no more"
+    );
+}
+
+#[test]
+fn a_gap_shows_its_heading_beside_the_count() {
+    // A gap says what it stands for in a band of its own, from `note` rather than `text`: the
+    // pane draws `text` for every row, so a gap putting its heading there would have it drawn
+    // twice, once by the pane and once by the band.
+    let h = harness_with_gap(3, 3);
+    settle();
+
+    let shown: Vec<String> =
+        i_slint_backend_testing::ElementHandle::find_by_element_id(&h, "DiffRowView::i-gap-text")
+            .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
+            .collect();
+
+    assert!(
+        shown.iter().any(|t| t == "12 hidden    fn thing()"),
+        "the band should say how much is hidden and what follows, got {shown:?}"
     );
 }

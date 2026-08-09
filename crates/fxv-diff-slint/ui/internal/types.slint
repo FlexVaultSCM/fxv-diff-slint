@@ -9,20 +9,6 @@ export enum DiffSide {
     both,
 }
 
-export enum DiffRowKind {
-    // A file header: path, mode change, rename.
-    header,
-    // The @@ line introducing a hunk.
-    hunk-header,
-    // Unchanged, shown for context.
-    context,
-    added,
-    removed,
-    // Lines that exist but are not shown. Clicking expands them.
-    gap,
-    // Placeholder opposite an add or remove in side-by-side, so the two panes stay aligned.
-    filler,
-}
 
 // Why a gap's lines are not on screen. Only meaningful on a gap row.
 export enum DiffGapState {
@@ -81,7 +67,15 @@ export struct PaneSelection {
 // One rendered row. The view is driven entirely by a flat list of these, so the inline and
 // side-by-side layouts differ only in how the list was built, not in how it is drawn.
 export struct DiffRow {
-    kind: DiffRowKind,
+    // Which class of row this is, which picks its background. An open set: the numbers mean
+    // whatever produced the rows decides, and DiffStyle carries one brush per class.
+    class: int,
+    // Whether the gutter shows this row's numbers. A filler keeps its gutter but shows no
+    // number, so the two panes of a split stay in step without it claiming a line.
+    numbered: bool,
+    // Whether the content runs across the gutter too, for a row about the document rather than
+    // a line in it.
+    full-width: bool,
     // 1-based line numbers. 0 means "no number on this side", which is the case for an
     // added line's left column, a gap, or a filler.
     left-line: int,
@@ -97,6 +91,9 @@ export struct DiffRow {
     // The line content, already tab-expanded, without the leading +/-/space marker. On a gap
     // row this is the hunk heading, or the reason a fetch failed.
     text: string,
+    // What a row that is not a line has to say for itself, drawn by whatever draws that kind
+    // of row. A gap's heading, or why fetching it failed.
+    note: string,
     // How many display columns the text occupies. Not the string's length: a tab has already
     // been expanded and a wide character takes two. This is where the text ends, which is
     // where a selection on this row stops.
@@ -141,4 +138,19 @@ export struct GapExpandRequest {
 export enum DiffLayoutMode {
     inline,
     side-by-side,
+}
+
+// The row classes this crate produces, by name.
+//
+// Mirrors `RowClass` in Rust, and the order of `DiffStyle.class-backgrounds`. Nothing enforces
+// that the three agree, so a test asserts it.
+export global DiffRowClasses {
+    out property <int> context: 0;
+    out property <int> added: 1;
+    out property <int> removed: 2;
+    out property <int> gap: 3;
+    out property <int> filler: 4;
+    out property <int> header: 5;
+    /// The first class this crate does not use itself. A host numbers its own from here.
+    out property <int> first-free: 6;
 }

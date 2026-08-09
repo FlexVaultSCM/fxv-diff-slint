@@ -1,4 +1,6 @@
-import { CodeView, DiffView, DiffRow, DiffSide, PanePosition, DiffStyle } from "@FxvDiff";
+import {
+    CodeView, DiffView, DiffRow, DiffRowClasses, DiffSide, PanePosition, DiffStyle,
+} from "@FxvDiff";
 
 // Windows of a known size around the view, so tests can reason about the viewport.
 //
@@ -27,6 +29,16 @@ export component Harness inherits Window {
     // the default is a list built from other properties of the same global and an empty one
     // would draw every highlight transparent rather than failing.
     out property <int> styled-channels: DiffStyle.channel-backgrounds.length;
+    out property <int> styled-classes: DiffStyle.class-backgrounds.length;
+    out property <[int]> class-numbers: [
+        DiffRowClasses.context,
+        DiffRowClasses.added,
+        DiffRowClasses.removed,
+        DiffRowClasses.gap,
+        DiffRowClasses.filler,
+        DiffRowClasses.header,
+        DiffRowClasses.first-free,
+    ];
     in property <int> reveal-row: -1;
     in property <int> reveal-token;
 

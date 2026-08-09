@@ -13,7 +13,7 @@ use crate::diff::model::FileDiff;
 use crate::diff::parse::parse_unified_diff;
 use crate::diff::render::{render_diff, Pane};
 use crate::text::RenderOptions;
-use crate::view::{DisplayedRow, RowKind, RowModel};
+use crate::view::{DisplayedRow, RowClass, RowModel};
 
 pub fn file() -> FileDiff {
     let path = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tab_line.diff");
@@ -56,6 +56,6 @@ pub fn inline_view(file: &FileDiff) -> RowModel {
 /// The removed line, whose source begins with a tab.
 pub fn removed_row(rows: &[DisplayedRow]) -> usize {
     rows.iter()
-        .position(|r| r.kind == RowKind::Removed)
+        .position(|r| r.class == RowClass::REMOVED)
         .expect("the fixture removes a line")
 }

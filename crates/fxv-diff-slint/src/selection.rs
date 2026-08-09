@@ -184,7 +184,7 @@ mod tests {
     use crate::diff::render::Pane;
     use crate::span::Side;
     use crate::test_fixtures::{file, removed_row, rows, shown, split};
-    use crate::view::RowKind;
+    use crate::view::RowClass;
 
     fn caret(row: usize, column: u32) -> Caret {
         Caret { row, column }
@@ -234,7 +234,7 @@ mod tests {
         // The fixture starts at line 10, so a leading gap row precedes the content.
         let gap = r
             .iter()
-            .position(|row| row.kind == RowKind::Gap)
+            .position(|row| row.class == RowClass::GAP)
             .expect("the fixture hides the lines before the hunk");
         let first_content = gap + 1;
 
@@ -251,7 +251,7 @@ mod tests {
     fn a_selection_cannot_start_on_a_gap() {
         let f = file();
         let r = rows(&f);
-        let gap = r.iter().position(|row| row.kind == RowKind::Gap).unwrap();
+        let gap = r.iter().position(|row| row.class == RowClass::GAP).unwrap();
         assert!(run_bounds(&r, gap).is_empty());
     }
 
@@ -264,7 +264,7 @@ mod tests {
 
         let context = left
             .iter()
-            .position(|r| r.kind == RowKind::Context)
+            .position(|r| r.class == RowClass::CONTEXT)
             .unwrap();
         let spans = to_spans(
             &left,
@@ -289,7 +289,7 @@ mod tests {
         let r = rows(&f);
         let context = r
             .iter()
-            .position(|row| row.kind == RowKind::Context)
+            .position(|row| row.class == RowClass::CONTEXT)
             .unwrap();
         let spans = to_spans(
             &r,
@@ -313,9 +313,12 @@ mod tests {
         let r = rows(&f);
         let removed = r
             .iter()
-            .position(|row| row.kind == RowKind::Removed)
+            .position(|row| row.class == RowClass::REMOVED)
             .unwrap();
-        let added = r.iter().position(|row| row.kind == RowKind::Added).unwrap();
+        let added = r
+            .iter()
+            .position(|row| row.class == RowClass::ADDED)
+            .unwrap();
 
         let spans = to_spans(
             &r,
@@ -340,11 +343,11 @@ mod tests {
         let r = rows(&f);
         let first = r
             .iter()
-            .position(|row| row.kind == RowKind::Context)
+            .position(|row| row.class == RowClass::CONTEXT)
             .unwrap();
         let last = r
             .iter()
-            .rposition(|row| row.kind == RowKind::Context)
+            .rposition(|row| row.class == RowClass::CONTEXT)
             .unwrap();
         assert!(last - first >= 3, "the fixture needs rows in the middle");
 
@@ -383,11 +386,11 @@ mod tests {
         let r = rows(&f);
         let first = r
             .iter()
-            .position(|row| row.kind == RowKind::Context)
+            .position(|row| row.class == RowClass::CONTEXT)
             .unwrap();
         let last = r
             .iter()
-            .rposition(|row| row.kind == RowKind::Context)
+            .rposition(|row| row.class == RowClass::CONTEXT)
             .unwrap();
 
         let spans = to_spans(
