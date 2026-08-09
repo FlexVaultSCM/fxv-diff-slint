@@ -69,7 +69,7 @@ pub fn to_highlights(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::render::{render_diff, Pane};
+    use crate::diff::render::{render_diff, DiffPane};
     use crate::selection::{to_spans, Caret, Selection};
     use crate::span::Document;
     use crate::test_fixtures::{file, inline, inline_view, removed_row, rows};
@@ -118,7 +118,7 @@ mod tests {
             ..RenderOptions::default()
         };
 
-        let before = RowModel::from_rows(render_diff(&layout, &f, &plain, Pane::Inline))
+        let before = RowModel::from_rows(render_diff(&layout, &f, &plain, DiffPane::Inline))
             .rows()
             .to_vec();
         let row = removed_row(&before);
@@ -132,7 +132,7 @@ mod tests {
             },
         );
 
-        let after = RowModel::from_rows(render_diff(&layout, &f, &visible, Pane::Inline));
+        let after = RowModel::from_rows(render_diff(&layout, &f, &visible, DiffPane::Inline));
         let drawn = to_highlights(&after, &f, &visible, &spans);
 
         assert_eq!(

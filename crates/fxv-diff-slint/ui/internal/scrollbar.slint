@@ -6,7 +6,7 @@ import { CodeStyle } from "style.slint";
 // that always agree is worse than one. Turn theirs off and bind this to both.
 //
 // Hand-built because Slint exposes no public ScrollBar.
-export component DiffScrollbar {
+export component CodeScrollbar {
     // Total scrollable width. With two panes, they share one value, so either will do.
     in property <length> scrollable-width;
     // Width visible at once. With two panes, one pane's worth, since they move together.

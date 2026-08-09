@@ -1,7 +1,7 @@
 import { Button, ComboBox, LineEdit, TabWidget } from "std-widgets.slint";
 import {
-    CodeView, DiffView, DiffScrollbar, DiffRow, PaneSelection, CodeStyle,
-    GapExpandRequest,
+    CodeView, DiffView, CodeScrollbar, CodeRow, CodeSelection, CodeStyle,
+    DiffGapExpandRequest,
 } from "@FxvDiff";
 
 export component MainWindow inherits Window {
@@ -13,14 +13,14 @@ export component MainWindow inherits Window {
     // Plain files, shown by the same pane with no diff involved.
     in property <[string]> plain-names;
     in-out property <int> current-plain;
-    in property <[DiffRow]> plain-rows;
+    in property <[CodeRow]> plain-rows;
     in property <int> plain-columns;
 
-    in property <[DiffRow]> inline-rows;
+    in property <[CodeRow]> inline-rows;
     in property <int> inline-columns;
 
-    in property <[DiffRow]> left-rows;
-    in property <[DiffRow]> right-rows;
+    in property <[CodeRow]> left-rows;
+    in property <[CodeRow]> right-rows;
     // One value for both panes: differing scrollable widths would let the sides drift apart.
     in property <int> split-columns;
 
@@ -64,11 +64,11 @@ export component MainWindow inherits Window {
     callback find-previous();
     // Reports a finished drag, with which pane it happened in: 0 inline, 1 left, 2 right,
     // 3 standalone, matching the order the application names its panes in.
-    callback selection-finished(int, PaneSelection);
+    callback selection-finished(int, CodeSelection);
     // Rows are built for whichever layout is on screen, so switching needs a rebuild.
     callback layout-changed();
     // Forwarded from whichever view raised it; the host owns fetching the lines.
-    callback gap-expand-requested(GapExpandRequest);
+    callback gap-expand-requested(DiffGapExpandRequest);
 
     // Ties the two panes together: both views bind to these, so moving either moves both.
     in-out property <length> shared-scroll-y: 0px;
@@ -337,7 +337,7 @@ export component MainWindow inherits Window {
                             }
                         }
 
-                        DiffScrollbar {
+                        CodeScrollbar {
                             // Both panes are given the same longest-line count, so their
                             // scrollable widths match and either one describes the range.
                             scrollable-width: i-left.scrollable-width;

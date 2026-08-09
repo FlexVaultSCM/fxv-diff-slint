@@ -1,20 +1,19 @@
 // The public surface of this crate. Everything importable from "@FxvDiff" is listed here and
 // nowhere else; everything under internal/ is private.
 
-import { CodeView } from "internal/pane.slint";
+import { CodeView } from "internal/code-view.slint";
 import { DiffView } from "internal/diff-view.slint";
 import { CodeStyle } from "internal/style.slint";
-import { DiffScrollbar } from "internal/scrollbar.slint";
+import { CodeScrollbar } from "internal/scrollbar.slint";
 import {
-    DiffRow,
-    DiffGapState,
+    CodeRow,
+    CodeGapState,
     DiffRowClasses,
-    DiffHighlight,
-    PanePosition,
-    PaneSelection,
-    PaneLineRef,
-    DiffLayoutMode,
-    GapExpandRequest,
+    CodeHighlight,
+    CodePosition,
+    CodeSelection,
+    CodeLine,
+    DiffGapExpandRequest,
 } from "internal/types.slint";
 
 // Both panes are importable on their own: `CodeView` shows monospace text with line numbers,
@@ -22,14 +21,14 @@ import {
 // Neither is built from the other, because a component that owns a ListView also fixes which
 // row component the list builds; what they share is their row and their arithmetic.
 //
-// CodeView and DiffScrollbar are instantiated from .slint only, which is just as well: the
+// CodeView and CodeScrollbar are instantiated from .slint only, which is just as well: the
 // generated Rust module contains only the last exported component, so DiffView comes after
 // both. A consumer instantiating CodeView in its own markup is unaffected by that.
-export { DiffScrollbar }
+export { CodeScrollbar }
 export { CodeView }
 export { DiffView, CodeStyle }
-export { DiffRow, DiffGapState, DiffRowClasses, DiffLayoutMode }
-export { DiffHighlight }
-// Pane vocabulary rather than diff vocabulary: both panes speak it.
-export { PaneLineRef, PanePosition, PaneSelection }
-export { GapExpandRequest }
+export { CodeRow, CodeGapState, DiffRowClasses }
+export { CodeHighlight }
+// Vocabulary both panes speak, rather than anything about diffs.
+export { CodeLine, CodePosition, CodeSelection }
+export { DiffGapExpandRequest }

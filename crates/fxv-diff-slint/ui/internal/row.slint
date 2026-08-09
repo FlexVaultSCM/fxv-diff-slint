@@ -1,5 +1,5 @@
 import { CodeStyle } from "style.slint";
-import { DiffRow, PanePosition } from "types.slint";
+import { CodeRow, CodePosition } from "types.slint";
 
 // One rendered row of any pane: a gutter carrying line numbers, then the line body.
 //
@@ -12,7 +12,7 @@ import { DiffRow, PanePosition } from "types.slint";
 //   - the body paints the row and holds its text,
 //   - the gutter holds the left edge while the body slides behind it.
 export component RowView {
-    in property <DiffRow> data;
+    in property <CodeRow> data;
     in property <length> advance;
     in property <length> letter-spacing;
     in property <length> gutter-width;
@@ -34,8 +34,8 @@ export component RowView {
     /// The selection on screen, already ordered so that start comes before end. A start row of
     /// -1 means there is none. Ordered by the view so every row is spared working out which end
     /// is which.
-    in property <PanePosition> sel-start: { row: -1, column: 0 };
-    in property <PanePosition> sel-end: { row: -1, column: 0 };
+    in property <CodePosition> sel-start: { row: -1, column: 0 };
+    in property <CodePosition> sel-end: { row: -1, column: 0 };
     /// Whether dragging selects at all.
     in property <bool> selectable: false;
 
@@ -44,9 +44,9 @@ export component RowView {
     out property <bool> in-a-run: root.data.run-end > root.data.run-start;
 
     /// Pointer went down on this row, at a position.
-    callback select-start(PanePosition);
+    callback select-start(CodePosition);
     /// Pointer moved to a position, already clamped to this row's run.
-    callback select-to(PanePosition);
+    callback select-to(CodePosition);
     /// Pointer released.
     callback select-end();
 

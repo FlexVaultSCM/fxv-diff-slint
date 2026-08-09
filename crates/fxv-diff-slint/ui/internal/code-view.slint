@@ -1,9 +1,9 @@
 import { ListView } from "std-widgets.slint";
 import { CodeStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
-import { PaneMath } from "pane-math.slint";
+import { CodeMath } from "code-math.slint";
 import { RowView } from "row.slint";
-import { DiffRow, PaneLineRef, PanePosition, PaneSelection } from "types.slint";
+import { CodeRow, CodeLine, CodePosition, CodeSelection } from "types.slint";
 
 // A pane of monospace text: line numbers, highlights, selection, and both axes scrolling.
 //
@@ -14,7 +14,7 @@ import { DiffRow, PaneLineRef, PanePosition, PaneSelection } from "types.slint";
 // what a ListView measures to size its scrollable area; assigning its viewport width instead
 // does nothing, because it recomputes that from its rows.
 export component CodeView {
-    in property <[DiffRow]> rows;
+    in property <[CodeRow]> rows;
     in property <bool> show-line-numbers: true;
     /// How many number columns the gutter carries, filled from each row's first number.
     ///
@@ -55,16 +55,16 @@ export component CodeView {
     /// A row of -1 on the anchor means there is none. Plain properties on purpose: a drag moves
     /// them and the rows redraw, with nothing written to the model and no span resolved until
     /// the gesture ends.
-    in-out property <PanePosition> selection-anchor: { row: -1, column: 0 };
-    in-out property <PanePosition> selection-focus: { row: -1, column: 0 };
+    in-out property <CodePosition> selection-anchor: { row: -1, column: 0 };
+    in-out property <CodePosition> selection-focus: { row: -1, column: 0 };
 
     /// Raised when a drag finishes, which is when the selection is worth resolving to spans.
-    callback selection-finished(PaneSelection);
-    callback line-clicked(PaneLineRef);
+    callback selection-finished(CodeSelection);
+    callback line-clicked(CodeLine);
 
     i-metrics := GridMetrics { }
 
-    i-math := PaneMath {
+    i-math := CodeMath {
         rows: root.rows;
         row-height: i-metrics.row-height;
         visible-height: i-list.visible-height;

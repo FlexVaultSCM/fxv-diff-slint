@@ -10,7 +10,7 @@ use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
 // == Internal Crates
-use fxv_diff_slint::PanePosition;
+use fxv_diff_slint::CodePosition;
 use fxv_diff_slint_tests::{harness, settle, Harness};
 
 const ROWS: u32 = 30;
@@ -150,8 +150,8 @@ fn drag(h: &Harness, path: &[(f32, f32)]) {
 }
 
 /// A selection end, for setting one without a gesture.
-fn at_row(row: i32, column: i32) -> PanePosition {
-    PanePosition { row, column }
+fn at_row(row: i32, column: i32) -> CodePosition {
+    CodePosition { row, column }
 }
 
 /// A point inside the first half of a column, in window coordinates.

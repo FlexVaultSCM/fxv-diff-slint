@@ -71,8 +71,11 @@ pub struct Gap {
     pub state: GapState,
     /// The hunk heading this gap precedes, or why fetching it failed.
     pub note: SharedString,
-    /// Where the hidden run starts, on each side. What the controls ask for.
-    pub start: (u32, u32),
+    /// Where the hidden run starts, in each document it spans. What the controls ask for.
+    ///
+    /// One entry per document: a pane showing one file has one, and a diff has two because the
+    /// same hidden run is numbered differently in the before-file and the after-file.
+    pub starts: Vec<(Document, u32)>,
     /// The run being fetched, numbered on the right, when one is.
     pub pending: Option<(u32, u32)>,
 }

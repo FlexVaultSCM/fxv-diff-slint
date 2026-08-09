@@ -1,5 +1,5 @@
 import { CodeStyle } from "style.slint";
-import { DiffRow, DiffGapState, DiffRowClasses } from "types.slint";
+import { CodeRow, CodeGapState, DiffRowClasses } from "types.slint";
 import { GapButton } from "gap-button.slint";
 import { RowView } from "row.slint";
 
@@ -30,9 +30,9 @@ export component DiffRowView inherits RowView {
     out property <bool> stepped: root.data.gap.hidden-count > root.expand-step;
 
     out property <bool> gap-waiting: root.data.class == DiffRowClasses.gap
-        && root.data.gap.state == DiffGapState.waiting;
+        && root.data.gap.state == CodeGapState.waiting;
     out property <bool> gap-failed: root.data.class == DiffRowClasses.gap
-        && root.data.gap.state == DiffGapState.failed;
+        && root.data.gap.state == CodeGapState.failed;
 
     // Controls are drawn whenever a gap could be opened at all, in every state. A failure
     // leaves them exactly as they were, so retrying is clicking the same control again rather
@@ -46,9 +46,14 @@ export component DiffRowView inherits RowView {
     // What each control would ask for, so the one that is working can be told from the run the
     // model says is in flight. Derived rather than remembered: the row is rebuilt the moment
     // the fetch is recorded, which throws away anything it was holding.
-    out property <int> down-start: root.data.gap.start-right;
+    // A diff's gap spans two documents, and the renderer writes them before then after. Named
+    // once here so nothing else has to know the order.
+    out property <int> before-start: root.data.gap.starts[0].line;
+    out property <int> after-start: root.data.gap.starts[1].line;
+
+    out property <int> down-start: root.after-start;
     out property <int> up-start:
-        root.data.gap.start-right + root.data.gap.hidden-count - root.step;
+        root.after-start + root.data.gap.hidden-count - root.step;
     function working(start: int, count: int) -> bool {
         root.gap-waiting && root.data.gap.busy-start == start && root.data.gap.busy-count == count
     }
@@ -80,7 +85,7 @@ export component DiffRowView inherits RowView {
             blocked: root.gap-blocked;
             // Opens the top of the gap, next to the hunk above it.
             clicked => {
-                root.expand(root.data.gap.start-left, root.data.gap.start-right, root.step);
+                root.expand(root.before-start, root.after-start, root.step);
             }
         }
 
@@ -92,8 +97,8 @@ export component DiffRowView inherits RowView {
             // Opens the bottom, next to the hunk below.
             clicked => {
                 root.expand(
-                    root.data.gap.start-left + root.data.gap.hidden-count - root.step,
-                    root.data.gap.start-right + root.data.gap.hidden-count - root.step,
+                    root.before-start + root.data.gap.hidden-count - root.step,
+                    root.after-start + root.data.gap.hidden-count - root.step,
                     root.step);
             }
         }
@@ -105,8 +110,8 @@ export component DiffRowView inherits RowView {
             blocked: root.gap-blocked;
             clicked => {
                 root.expand(
-                    root.data.gap.start-left,
-                    root.data.gap.start-right,
+                    root.before-start,
+                    root.after-start,
                     root.data.gap.hidden-count,
                 );
             }

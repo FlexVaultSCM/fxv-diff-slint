@@ -18,7 +18,7 @@
 //! enables the Slint compiler feature that reads it.
 //!
 //! The generated types live in [`ui`], so your generated code refers to
-//! `fxv_diff_slint::ui::DiffRow` and so on.
+//! `fxv_diff_slint::ui::CodeRow` and so on.
 //!
 //! # Renderers
 //!
@@ -50,7 +50,7 @@ pub use diff::model::{
     LineKind, LineOrigin,
 };
 pub use diff::parse::{parse_unified_diff, ParseError};
-pub use diff::render::{render_diff, Pane};
+pub use diff::render::{render_diff, DiffPane};
 // A selection travels through three forms: the gesture, the durable spans it resolves to, and
 // the ranges those are painted as. One module owns each.
 pub use highlight::to_highlights;
@@ -75,6 +75,6 @@ pub mod ui {
 }
 
 pub use ui::{
-    CodeStyle, DiffGapState, DiffLayoutMode, DiffRow, DiffView, GapExpandRequest, PaneLineRef,
-    PanePosition, PaneSelection,
+    CodeGapState, CodeLine, CodePosition, CodeRow, CodeSelection, CodeStyle, DiffGapExpandRequest,
+    DiffView,
 };

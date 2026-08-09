@@ -4,7 +4,7 @@
 
 
 // Why a gap's lines are not on screen. Only meaningful on a gap row.
-export enum DiffGapState {
+export enum CodeGapState {
     // Nobody has asked for them, so the gap offers to open.
     hidden,
     // Somebody has, and they have not arrived.
@@ -18,7 +18,7 @@ export enum DiffGapState {
 // Display columns, not source characters. The crate converts, because how many columns a
 // character occupies depends on the tab width and on whether whitespace is being shown, and
 // nothing outside the widget should have to know that.
-export struct DiffHighlight {
+export struct CodeHighlight {
     start: int,
     // Ignored when to-end is set.
     end: int,
@@ -38,7 +38,7 @@ export struct DiffHighlight {
 // Columns are display columns, not source characters, because that is what a pointer position
 // converts to directly. A row of -1 means "nowhere", which is how the absence of a selection is
 // said without a second property to say it.
-export struct PanePosition {
+export struct CodePosition {
     row: int,
     column: int,
 }
@@ -52,24 +52,32 @@ export struct PanePosition {
 // Carried by the callback rather than read back off the view, because a view can sit inside a
 // conditional block where a host cannot reach it, and because two panes of a split each have
 // their own selection that must not become one.
-export struct PaneSelection {
-    anchor: PanePosition,
-    focus: PanePosition,
+export struct CodeSelection {
+    anchor: CodePosition,
+    focus: CodePosition,
+}
+
+// A line a pane is showing: which document numbers it, and the number it has there.
+export struct CodeLine {
+    document: int,
+    line: int,
 }
 
 // A run of lines that exists but is not shown, and what is happening to it.
 //
 // Only a diff produces these. Grouped rather than spread across the row so that a pane showing
 // a plain file carries one empty struct rather than five fields it will never fill.
-export struct DiffGap {
+export struct CodeGap {
     // How many lines are hidden. Zero on a row that is not a gap.
     hidden-count: int,
-    state: DiffGapState,
+    state: CodeGapState,
     // The hunk heading this gap precedes, or why fetching it failed.
     note: string,
-    // Where the hidden run starts, on each side. What the controls ask for.
-    start-left: int,
-    start-right: int,
+    // Where the hidden run starts, in each document it spans. What the controls ask for.
+    //
+    // One entry per document: a pane showing one file has one, and a diff has two because the
+    // same hidden run is numbered differently in the before-file and the after-file.
+    starts: [CodeLine],
     // The run being fetched, numbered on the right. A zero count means nothing is.
     busy-start: int,
     busy-count: int,
@@ -77,7 +85,7 @@ export struct DiffGap {
 
 // One rendered row. The view is driven entirely by a flat list of these, so the inline and
 // side-by-side layouts differ only in how the list was built, not in how it is drawn.
-export struct DiffRow {
+export struct CodeRow {
     // Which class of row this is, which picks its background. An open set: the numbers mean
     // whatever produced the rows decides, and CodeStyle carries one brush per class.
     class: int,
@@ -108,8 +116,8 @@ export struct DiffRow {
     columns: int,
     // What this row stands for when it stands for content rather than showing it. A hidden
     // count of zero means it is an ordinary line and none of the rest applies.
-    gap: DiffGap,
-    highlights: [DiffHighlight],
+    gap: CodeGap,
+    highlights: [CodeHighlight],
     // The run of selectable rows this one belongs to, as row indices, end exclusive. A
     // selection may not cross a gap or a header, so a drag clamps to the run it began in.
     run-start: int,
@@ -118,11 +126,6 @@ export struct DiffRow {
 
 // Identifies a line by side and line number rather than by row index, so it stays valid when
 // expanding a gap inserts rows above it.
-// A line a pane is showing: which document numbers it, and the number it has there.
-export struct PaneLineRef {
-    document: int,
-    line: int,
-}
 
 // A request for some of the lines a gap is hiding. The host fetches them however it likes and
 // hands them back; this crate performs no IO.
@@ -130,16 +133,11 @@ export struct PaneLineRef {
 // A gap can be opened a piece at a time, so this names a run rather than the whole gap. Both
 // line numbers are given because the same content sits at different numbers on each side, and
 // the host may hold either version of the file.
-export struct GapExpandRequest {
+export struct DiffGapExpandRequest {
     // 1-based, inclusive, on each side.
     left-start: int,
     right-start: int,
     count: int,
-}
-
-export enum DiffLayoutMode {
-    inline,
-    side-by-side,
 }
 
 // The row classes this crate produces, by name.

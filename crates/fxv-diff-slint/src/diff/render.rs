@@ -14,9 +14,12 @@ use crate::span::Document;
 use crate::text::{render_line, RenderOptions};
 use crate::view::{DisplayedRow, Gap, RowClass, GUTTER_COLUMNS};
 
-/// Which part of a layout a pane shows.
+/// Which reading of a diff a pane is showing.
+///
+/// Named for the diff rather than the pane: a `CodeView` has no notion of sides, and this is
+/// what a diff picks when it renders rows for one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Pane {
+pub enum DiffPane {
     /// One column showing both files, with two numbers against an unchanged line.
     Inline,
     /// The left file only, as one side of a split view.
@@ -32,7 +35,7 @@ pub fn render_diff(
     layout: &Layout,
     file: &FileDiff,
     opts: &RenderOptions,
-    pane: Pane,
+    pane: DiffPane,
 ) -> Vec<DisplayedRow> {
     layout
         .rows
@@ -42,7 +45,7 @@ pub fn render_diff(
 }
 
 /// Renders one entry as this pane sees it.
-fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> DisplayedRow {
+fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: DiffPane) -> DisplayedRow {
     match entry {
         // The file itself rather than a line in it, so it runs across the gutter and numbers
         // nothing.
@@ -69,7 +72,11 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
                     hidden: *hidden,
                     state: *state,
                     note: note.into(),
-                    start: (*left_start, *right_start),
+                    // Before then after, which is the order the controls read them in.
+                    starts: vec![
+                        (Document::BEFORE, *left_start),
+                        (Document::AFTER, *right_start),
+                    ],
                     pending: *pending,
                 }),
                 // The band drawn over a gap takes the gutter with it, and a gap names no line.
@@ -80,11 +87,11 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
 
         Row::Lines(diff_row) => {
             let shown = match pane {
-                Pane::Left => diff_row.left,
-                Pane::Right => diff_row.right,
+                DiffPane::Left => diff_row.left,
+                DiffPane::Right => diff_row.right,
                 // Inline draws one line per entry, so whichever side is present is the one to
                 // draw. An unchanged line is on both and either gives the same text.
-                Pane::Inline => diff_row.left.or(diff_row.right),
+                DiffPane::Inline => diff_row.left.or(diff_row.right),
             };
 
             let Some(row) = shown else {
@@ -101,8 +108,8 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
                 // An unchanged line is in both files, so which one names it is decided by the
                 // pane. An inline view means the right, being the file as it stands now.
                 LineKind::Context => match pane {
-                    Pane::Left => Document::BEFORE,
-                    Pane::Inline | Pane::Right => Document::AFTER,
+                    DiffPane::Left => Document::BEFORE,
+                    DiffPane::Inline | DiffPane::Right => Document::AFTER,
                 },
             };
 
@@ -126,10 +133,14 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
 }
 
 /// The numbers this pane's gutter shows for an entry.
-fn gutter(left: Option<Line>, right: Option<Line>, pane: Pane) -> [Option<u32>; GUTTER_COLUMNS] {
+fn gutter(
+    left: Option<Line>,
+    right: Option<Line>,
+    pane: DiffPane,
+) -> [Option<u32>; GUTTER_COLUMNS] {
     match pane {
-        Pane::Inline => [left.map(|r| r.line), right.map(|r| r.line)],
-        Pane::Left => [left.map(|r| r.line), None],
-        Pane::Right => [right.map(|r| r.line), None],
+        DiffPane::Inline => [left.map(|r| r.line), right.map(|r| r.line)],
+        DiffPane::Left => [left.map(|r| r.line), None],
+        DiffPane::Right => [right.map(|r| r.line), None],
     }
 }

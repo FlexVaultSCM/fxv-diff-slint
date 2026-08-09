@@ -38,13 +38,13 @@ pub struct Caret {
     pub column: u32,
 }
 
-impl From<ui::PanePosition> for Caret {
+impl From<ui::CodePosition> for Caret {
     /// Takes a position from the widget, which reports one in the same coordinates.
     ///
     /// Negative values cannot be a row or a column, so they clamp to zero rather than wrap.
     /// The widget uses a row of -1 to mean no selection at all, and a caller checks for that
     /// before converting rather than being handed a caret at row zero.
-    fn from(at: ui::PanePosition) -> Self {
+    fn from(at: ui::CodePosition) -> Self {
         Caret {
             row: at.row.max(0) as usize,
             column: at.column.max(0) as u32,
@@ -52,8 +52,8 @@ impl From<ui::PanePosition> for Caret {
     }
 }
 
-impl From<ui::PaneSelection> for Selection {
-    fn from(selection: ui::PaneSelection) -> Self {
+impl From<ui::CodeSelection> for Selection {
+    fn from(selection: ui::CodeSelection) -> Self {
         Selection {
             anchor: selection.anchor.into(),
             focus: selection.focus.into(),
@@ -185,7 +185,7 @@ pub fn to_spans(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::render::Pane;
+    use crate::diff::render::DiffPane;
     use crate::span::Document;
     use crate::test_fixtures::{file, removed_row, rows, shown, split};
     use crate::view::RowClass;
@@ -263,7 +263,7 @@ mod tests {
     fn a_pane_names_unchanged_lines_by_its_own_side() {
         let f = file();
         let layout = split(&f);
-        let left = shown(&layout, &f, Pane::Left);
+        let left = shown(&layout, &f, DiffPane::Left);
         let opts = RenderOptions::default();
 
         let context = left

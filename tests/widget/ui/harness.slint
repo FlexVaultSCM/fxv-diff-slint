@@ -1,5 +1,5 @@
 import {
-    CodeView, DiffView, DiffRow, DiffRowClasses, PanePosition, CodeStyle,
+    CodeView, DiffView, CodeRow, DiffRowClasses, CodePosition, CodeStyle,
 } from "@FxvDiff";
 
 // Windows of a known size around the view, so tests can reason about the viewport.
@@ -9,7 +9,7 @@ import {
 
 // One view, for anything about the grid or a single pane's geometry.
 export component Harness inherits Window {
-    in property <[DiffRow]> rows;
+    in property <[CodeRow]> rows;
     in property <int> longest-line-columns: 120;
     in property <bool> gap-expandable: false;
     in property <int> gutter-columns: 2;
@@ -43,8 +43,8 @@ export component Harness inherits Window {
     in property <int> reveal-token;
 
     in property <bool> selectable: false;
-    in-out property <PanePosition> selection-anchor <=> i-view.selection-anchor;
-    in-out property <PanePosition> selection-focus <=> i-view.selection-focus;
+    in-out property <CodePosition> selection-anchor <=> i-view.selection-anchor;
+    in-out property <CodePosition> selection-focus <=> i-view.selection-focus;
     out property <int> finished-count: 0;
     out property <int> clicked-line: -1;
     out property <int> clicked-document: -1;
@@ -96,7 +96,7 @@ export component Harness inherits Window {
 // property does not create one. A second view sharing that property does, so only here does
 // the list stop correcting itself and the view's own clamp start carrying the behaviour.
 export component PairedHarness inherits Window {
-    in property <[DiffRow]> rows;
+    in property <[CodeRow]> rows;
     in property <int> longest-line-columns: 120;
 
     in-out property <length> scroll-y: 0px;
@@ -130,7 +130,7 @@ export component PairedHarness inherits Window {
 
 // The plain pane on its own, for anything that has to hold for a pane with no diff behind it.
 export component CodeHarness inherits Window {
-    in property <[DiffRow]> rows;
+    in property <[CodeRow]> rows;
     in property <int> longest-line-columns: 120;
 
     out property <length> row-height <=> i-view.row-height;

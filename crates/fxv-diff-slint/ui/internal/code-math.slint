@@ -1,4 +1,4 @@
-import { DiffRow, PanePosition } from "types.slint";
+import { CodeRow, CodePosition } from "types.slint";
 
 // The arithmetic a pane does, with none of the pane.
 //
@@ -9,26 +9,26 @@ import { DiffRow, PanePosition } from "types.slint";
 //
 // No pixels leave here that were not given to it. It is handed the geometry a pane has already
 // measured and answers questions about it.
-export component PaneMath {
-    in property <[DiffRow]> rows;
+export component CodeMath {
+    in property <[CodeRow]> rows;
     in property <length> row-height;
     in property <length> visible-height;
     in property <length> max-scroll-y;
     in property <length> scroll-y;
 
-    in property <PanePosition> anchor: { row: -1, column: 0 };
+    in property <CodePosition> anchor: { row: -1, column: 0 };
     // Named `to` rather than `focus`, which collides with the focus() every element has.
-    in property <PanePosition> to: { row: -1, column: 0 };
+    in property <CodePosition> to: { row: -1, column: 0 };
 
     // The selection ordered so that start comes before end, by row and then by column within a
     // row. Worked out once here rather than in every row.
     out property <bool> forwards:
         root.anchor.row < root.to.row
         || (root.anchor.row == root.to.row && root.anchor.column <= root.to.column);
-    out property <PanePosition> sel-start: root.anchor.row < 0
+    out property <CodePosition> sel-start: root.anchor.row < 0
         ? { row: -1, column: 0 }
         : root.forwards ? root.anchor : root.to;
-    out property <PanePosition> sel-end: root.forwards ? root.to : root.anchor;
+    out property <CodePosition> sel-end: root.forwards ? root.to : root.anchor;
 
     // A caret pulled back to the end of the text on the row it landed on, so a selection has
     // the ragged right edge every other text view has rather than a straight one cutting
@@ -36,7 +36,7 @@ export component PaneMath {
     //
     // Not done by the row that reported it: a drag stays with the row it began on, and that
     // row cannot know how long the line under the pointer now is.
-    public function on-text(at: PanePosition) -> PanePosition {
+    public function on-text(at: CodePosition) -> CodePosition {
         { row: at.row, column: min(at.column, root.rows[at.row].columns) }
     }
 

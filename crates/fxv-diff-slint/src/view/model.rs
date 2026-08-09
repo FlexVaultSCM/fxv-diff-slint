@@ -23,7 +23,7 @@ use crate::view::row::{Channel, DisplayColumnExtent, DisplayedRow, Gap, Highligh
 /// widget draws, kept together so highlights can change without either being rebuilt.
 pub struct RowModel {
     rows: Vec<DisplayedRow>,
-    model: Rc<VecModel<ui::DiffRow>>,
+    model: Rc<VecModel<ui::CodeRow>>,
     longest_line_columns: i32,
     /// Which row shows each line, for resolving a span that names a file and a line number.
     ///
@@ -51,7 +51,7 @@ impl RowModel {
         mark_runs(&mut rows);
 
         let longest_line_columns = rows.iter().map(|r| r.columns).max().unwrap_or(0) as i32;
-        let converted: Vec<ui::DiffRow> = rows.iter().map(|r| r.into()).collect();
+        let converted: Vec<ui::CodeRow> = rows.iter().map(|r| r.into()).collect();
 
         let mut line_index = HashMap::new();
         for (index, row) in rows.iter().enumerate() {
@@ -78,7 +78,7 @@ impl RowModel {
     }
 
     /// What the widget binds to.
-    pub fn model(&self) -> ModelRc<ui::DiffRow> {
+    pub fn model(&self) -> ModelRc<ui::CodeRow> {
         ModelRc::from(self.model.clone())
     }
 
@@ -229,13 +229,13 @@ fn group_by_row(
     grouped
 }
 
-impl From<&DisplayedRow> for ui::DiffRow {
+impl From<&DisplayedRow> for ui::CodeRow {
     fn from(row: &DisplayedRow) -> Self {
         // A gap draws no numbers, so it spends the two number fields on where its hidden run
         // starts. Opening one has to say which lines to fetch, and that is the only thing it
         // has to say. Losing this makes every gap ask for line zero, so whichever one is
         // clicked, the first one opens.
-        ui::DiffRow {
+        ui::CodeRow {
             class: row.class.0 as i32,
             numbered: row.numbered,
             full_width: row.full_width,
@@ -270,11 +270,11 @@ impl From<&DisplayedRow> for ui::DiffRow {
 /// counting as a change to the row itself, so the list would re-evaluate the highlights alone
 /// instead of the row. Left until the write path is restructured for channels, because it
 /// changes what "a row was written" means and the tests here measure exactly that.
-fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::DiffHighlight> {
+fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::CodeHighlight> {
     if highlights.is_empty() {
         return ModelRc::default();
     }
-    let converted: Vec<ui::DiffHighlight> = highlights
+    let converted: Vec<ui::CodeHighlight> = highlights
         .iter()
         .map(|h| {
             // Slint has no enum carrying a payload, so the two cases flatten into a flag.
@@ -285,7 +285,7 @@ fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::DiffHighlight> {
                 }
                 DisplayColumnExtent::ToEnd { from } => (*from as i32, 0, true),
             };
-            ui::DiffHighlight {
+            ui::CodeHighlight {
                 start,
                 end,
                 to_end,
@@ -297,25 +297,32 @@ fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::DiffHighlight> {
 }
 
 /// Packs a gap into the form the widget binds to.
-fn gap_of(gap: &Gap) -> ui::DiffGap {
-    ui::DiffGap {
+fn gap_of(gap: &Gap) -> ui::CodeGap {
+    ui::CodeGap {
         hidden_count: gap.hidden as i32,
         state: gap.state.into(),
         note: gap.note.clone(),
-        start_left: gap.start.0 as i32,
-        start_right: gap.start.1 as i32,
+        starts: ModelRc::from(Rc::new(VecModel::from(
+            gap.starts
+                .iter()
+                .map(|(document, line)| ui::CodeLine {
+                    document: document.0 as i32,
+                    line: *line as i32,
+                })
+                .collect::<Vec<_>>(),
+        ))),
         // Zero count means nothing is in flight. A fetch of no lines is not a thing.
         busy_start: gap.pending.map_or(0, |(start, _)| start) as i32,
         busy_count: gap.pending.map_or(0, |(_, count)| count) as i32,
     }
 }
 
-impl From<GapState> for ui::DiffGapState {
+impl From<GapState> for ui::CodeGapState {
     fn from(state: GapState) -> Self {
         match state {
-            GapState::Hidden => ui::DiffGapState::Hidden,
-            GapState::Waiting => ui::DiffGapState::Waiting,
-            GapState::Failed => ui::DiffGapState::Failed,
+            GapState::Hidden => ui::CodeGapState::Hidden,
+            GapState::Waiting => ui::CodeGapState::Waiting,
+            GapState::Failed => ui::CodeGapState::Failed,
         }
     }
 }
@@ -325,7 +332,7 @@ mod tests {
     use super::*;
     use crate::diff::layout::Layout;
     use crate::diff::layout::{build_inline, build_split, RowOptions};
-    use crate::diff::render::{render_diff, Pane};
+    use crate::diff::render::{render_diff, DiffPane};
     use crate::span::Document;
     use crate::test_fixtures::{file, shown};
     use crate::text::RenderOptions;
@@ -341,7 +348,11 @@ mod tests {
     #[test]
     fn tabs_are_expanded_in_row_text() {
         let f = file();
-        let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
+        let rows = shown(
+            &build_inline(&f, &RowOptions::default()),
+            &f,
+            DiffPane::Inline,
+        );
         let removed = rows.iter().find(|r| r.class == RowClass::REMOVED).unwrap();
 
         assert!(
@@ -363,7 +374,7 @@ mod tests {
                 tab_width: 8,
                 ..RenderOptions::default()
             },
-            Pane::Inline,
+            DiffPane::Inline,
         ));
         let removed = wide
             .rows()
@@ -379,7 +390,7 @@ mod tests {
         let f = file();
         let layout = build_inline(&f, &RowOptions::default());
         let opts = RenderOptions::default();
-        let model = RowModel::from_rows(render_diff(&layout, &f, &opts, Pane::Inline));
+        let model = RowModel::from_rows(render_diff(&layout, &f, &opts, DiffPane::Inline));
 
         let longest = model
             .rows()
@@ -403,8 +414,8 @@ mod tests {
         let layout = build_split(&f, &RowOptions::default());
         let opts = RenderOptions::default();
 
-        let left = RowModel::from_rows(render_diff(&layout, &f, &opts, Pane::Left));
-        let right = RowModel::from_rows(render_diff(&layout, &f, &opts, Pane::Right));
+        let left = RowModel::from_rows(render_diff(&layout, &f, &opts, DiffPane::Left));
+        let right = RowModel::from_rows(render_diff(&layout, &f, &opts, DiffPane::Right));
 
         assert!(
             right.longest_line_columns() > left.longest_line_columns(),
@@ -433,7 +444,7 @@ mod tests {
                 &Layout::default(),
                 &f,
                 &RenderOptions::default(),
-                Pane::Inline
+                DiffPane::Inline
             ))
             .longest_line_columns(),
             0
@@ -447,8 +458,8 @@ mod tests {
         let f = file();
         let layout = build_split(&f, &RowOptions::default());
         assert_eq!(
-            shown(&layout, &f, Pane::Left).len(),
-            shown(&layout, &f, Pane::Right).len(),
+            shown(&layout, &f, DiffPane::Left).len(),
+            shown(&layout, &f, DiffPane::Right).len(),
             "one layout, so the panes cannot drift"
         );
     }
@@ -457,7 +468,7 @@ mod tests {
     fn a_side_with_no_line_draws_as_a_filler() {
         let f = file();
         let layout = build_split(&f, &RowOptions::default());
-        let right = shown(&layout, &f, Pane::Right);
+        let right = shown(&layout, &f, DiffPane::Right);
 
         // The fixture removes one line and adds one, so the sides are even and nothing is a
         // filler; the removal and the addition sit opposite each other.
@@ -471,7 +482,11 @@ mod tests {
     #[test]
     fn an_inline_pane_numbers_both_columns_of_an_unchanged_line() {
         let f = file();
-        let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
+        let rows = shown(
+            &build_inline(&f, &RowOptions::default()),
+            &f,
+            DiffPane::Inline,
+        );
         let context = rows.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
 
         assert!(
@@ -484,7 +499,7 @@ mod tests {
     fn a_split_pane_numbers_one_column() {
         let f = file();
         let layout = build_split(&f, &RowOptions::default());
-        for pane in [Pane::Left, Pane::Right] {
+        for pane in [DiffPane::Left, DiffPane::Right] {
             let rows = shown(&layout, &f, pane);
             assert!(
                 rows.iter().all(|r| r.numbers[1].is_none()),
@@ -498,11 +513,11 @@ mod tests {
         let f = file();
         let layout = build_split(&f, &RowOptions::default());
 
-        let left = shown(&layout, &f, Pane::Left);
+        let left = shown(&layout, &f, DiffPane::Left);
         let context = left.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
         assert_eq!(context.id.unwrap().0, Document::BEFORE);
 
-        let right = shown(&layout, &f, Pane::Right);
+        let right = shown(&layout, &f, DiffPane::Right);
         let context = right.iter().find(|r| r.class == RowClass::CONTEXT).unwrap();
         assert_eq!(context.id.unwrap().0, Document::AFTER);
     }
@@ -510,7 +525,11 @@ mod tests {
     #[test]
     fn only_rows_standing_for_a_line_are_selectable() {
         let f = file();
-        let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
+        let rows = shown(
+            &build_inline(&f, &RowOptions::default()),
+            &f,
+            DiffPane::Inline,
+        );
 
         for row in &rows {
             match row.class {
@@ -533,12 +552,20 @@ mod tests {
     #[test]
     fn a_gap_carries_what_it_needs_to_be_opened() {
         let f = file();
-        let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
+        let rows = shown(
+            &build_inline(&f, &RowOptions::default()),
+            &f,
+            DiffPane::Inline,
+        );
         let gap = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
 
         let gap = gap.gap.as_ref().expect("a gap row stands for a gap");
         assert!(gap.hidden > 0);
-        assert_eq!(gap.start, (1, 1), "the hidden run starts at line one");
+        assert_eq!(
+            gap.starts,
+            vec![(Document::BEFORE, 1), (Document::AFTER, 1)],
+            "the hidden run starts at line one in both documents"
+        );
     }
 
     // == Handing rows to the widget
@@ -546,9 +573,13 @@ mod tests {
     #[test]
     fn a_missing_line_number_becomes_zero() {
         let f = file();
-        let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
+        let rows = shown(
+            &build_inline(&f, &RowOptions::default()),
+            &f,
+            DiffPane::Inline,
+        );
         let added = rows.iter().find(|r| r.class == RowClass::ADDED).unwrap();
-        let converted = ui::DiffRow::from(added);
+        let converted = ui::CodeRow::from(added);
 
         assert_eq!(converted.left_line, 0, "absent in the left file");
         assert!(converted.right_line > 0);
@@ -561,19 +592,26 @@ mod tests {
         // It used to travel in those fields, which meant a row that named no line appeared to
         // name one.
         let f = file();
-        let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
+        let rows = shown(
+            &build_inline(&f, &RowOptions::default()),
+            &f,
+            DiffPane::Inline,
+        );
         let row = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
-        let converted = ui::DiffRow::from(row);
+        let converted = ui::CodeRow::from(row);
 
         let gap = row.gap.as_ref().unwrap();
-        assert_eq!(
-            (
-                converted.gap.start_left as u32,
-                converted.gap.start_right as u32
-            ),
-            gap.start
-        );
-        assert!(converted.gap.start_left > 0, "a real line to fetch from");
+        let handed: Vec<(u32, u32)> = converted
+            .gap
+            .starts
+            .iter()
+            .map(|at| (at.document as u32, at.line as u32))
+            .collect();
+        let expected: Vec<(u32, u32)> = gap.starts.iter().map(|(d, l)| (d.0, *l)).collect();
+
+        assert_eq!(handed, expected, "one start per document the gap spans");
+        assert_eq!(handed.len(), 2, "a diff's gap spans two documents");
+        assert!(handed[0].1 > 0, "a real line to fetch from");
         assert_eq!(converted.left_line, 0, "and the row still names no line");
         assert_eq!(converted.right_line, 0);
     }
@@ -583,9 +621,13 @@ mod tests {
         // The pane draws every row's text, so a gap putting its heading there would have it
         // drawn twice: once by the pane and once by the band.
         let f = file();
-        let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
+        let rows = shown(
+            &build_inline(&f, &RowOptions::default()),
+            &f,
+            DiffPane::Inline,
+        );
         let row = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
-        let converted = ui::DiffRow::from(row);
+        let converted = ui::CodeRow::from(row);
 
         assert_eq!(converted.gap.note, row.gap.as_ref().unwrap().note);
         assert_eq!(converted.text, "", "a gap has no text of its own");
@@ -604,7 +646,7 @@ mod tests {
             &layout,
             &f,
             &RenderOptions::default(),
-            Pane::Inline,
+            DiffPane::Inline,
         ))
     }
 

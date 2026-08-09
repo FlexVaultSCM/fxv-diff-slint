@@ -9,9 +9,9 @@ use std::rc::Rc;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines, DiffSet,
-    DisplayColumnExtent, DisplayedRow, Document, Pane, PaneSelection, RenderOptions, RowModel,
-    RowOptions, Selection,
+    build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines,
+    CodeSelection, DiffPane, DiffSet, DisplayColumnExtent, DisplayedRow, Document, RenderOptions,
+    RowModel, RowOptions, Selection,
 };
 
 // == External Crates
@@ -215,8 +215,9 @@ impl App {
             // diff twice over on every file change and every toggle, for rows nobody sees.
             if window.get_side_by_side() {
                 let layout = build_split(file, &opts);
-                let left = RowModel::from_rows(render_diff(&layout, file, &render, Pane::Left));
-                let right = RowModel::from_rows(render_diff(&layout, file, &render, Pane::Right));
+                let left = RowModel::from_rows(render_diff(&layout, file, &render, DiffPane::Left));
+                let right =
+                    RowModel::from_rows(render_diff(&layout, file, &render, DiffPane::Right));
                 // One count for both panes, or their scrollable widths differ and the sides
                 // drift. Each pane only measured its own side, and the widest line may be on
                 // either.
@@ -229,7 +230,8 @@ impl App {
                 held.set_split(left, right);
             } else {
                 let layout = build_inline(file, &opts);
-                let inline = RowModel::from_rows(render_diff(&layout, file, &render, Pane::Inline));
+                let inline =
+                    RowModel::from_rows(render_diff(&layout, file, &render, DiffPane::Inline));
                 window.set_inline_columns(inline.longest_line_columns());
                 window.set_inline_rows(inline.model());
                 held.set_inline(inline);
@@ -339,7 +341,7 @@ impl App {
     ///
     /// The view has drawn it already; this is the moment the gesture is worth turning into
     /// something durable. For now it only says what was selected.
-    pub fn selection_finished(&self, pane: i32, selection: PaneSelection) {
+    pub fn selection_finished(&self, pane: i32, selection: CodeSelection) {
         let which = match pane {
             0 => Which::Inline,
             1 => Which::Left,
