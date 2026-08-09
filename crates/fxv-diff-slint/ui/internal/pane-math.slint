@@ -1,0 +1,54 @@
+import { DiffRow, PanePosition } from "types.slint";
+
+// The arithmetic a pane does, with none of the pane.
+//
+// Kept apart because two panes need it and neither can be built from the other: a component
+// that owns a ListView also fixes which row component the list instantiates, and Slint has no
+// way to vary that, so a diff pane and a plain one have to own their own lists. Everything
+// they would otherwise each spell out lives here instead.
+//
+// No pixels leave here that were not given to it. It is handed the geometry a pane has already
+// measured and answers questions about it.
+export component PaneMath {
+    in property <[DiffRow]> rows;
+    in property <length> row-height;
+    in property <length> visible-height;
+    in property <length> max-scroll-y;
+    in property <length> scroll-y;
+
+    in property <PanePosition> anchor: { row: -1, column: 0 };
+    // Named `to` rather than `focus`, which collides with the focus() every element has.
+    in property <PanePosition> to: { row: -1, column: 0 };
+
+    // The selection ordered so that start comes before end, by row and then by column within a
+    // row. Worked out once here rather than in every row.
+    out property <bool> forwards:
+        root.anchor.row < root.to.row
+        || (root.anchor.row == root.to.row && root.anchor.column <= root.to.column);
+    out property <PanePosition> sel-start: root.anchor.row < 0
+        ? { row: -1, column: 0 }
+        : root.forwards ? root.anchor : root.to;
+    out property <PanePosition> sel-end: root.forwards ? root.to : root.anchor;
+
+    // A caret pulled back to the end of the text on the row it landed on, so a selection has
+    // the ragged right edge every other text view has rather than a straight one cutting
+    // through empty space.
+    //
+    // Not done by the row that reported it: a drag stays with the row it began on, and that
+    // row cannot know how long the line under the pointer now is.
+    public function on-text(at: PanePosition) -> PanePosition {
+        { row: at.row, column: min(at.column, root.rows[at.row].columns) }
+    }
+
+    // Where to scroll for `row` to sit in the middle of the view.
+    //
+    // Positions are zero at the top and negative going down, so the offset is negated to become
+    // one. Clamped at both ends, which is what makes a row in the first or last screenful
+    // settle short of the middle rather than scrolling past the content.
+    public function scroll-revealing(row: int) -> length {
+        row < 0 ? root.scroll-y : clamp(
+            -(row * root.row-height + root.row-height / 2 - root.visible-height / 2),
+            -root.max-scroll-y,
+            0px);
+    }
+}

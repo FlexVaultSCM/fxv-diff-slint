@@ -38,13 +38,13 @@ pub struct Caret {
     pub column: u32,
 }
 
-impl From<ui::DiffPosition> for Caret {
+impl From<ui::PanePosition> for Caret {
     /// Takes a position from the widget, which reports one in the same coordinates.
     ///
     /// Negative values cannot be a row or a column, so they clamp to zero rather than wrap.
     /// The widget uses a row of -1 to mean no selection at all, and a caller checks for that
     /// before converting rather than being handed a caret at row zero.
-    fn from(at: ui::DiffPosition) -> Self {
+    fn from(at: ui::PanePosition) -> Self {
         Caret {
             row: at.row.max(0) as usize,
             column: at.column.max(0) as u32,
@@ -52,8 +52,8 @@ impl From<ui::DiffPosition> for Caret {
     }
 }
 
-impl From<ui::DiffSelection> for Selection {
-    fn from(selection: ui::DiffSelection) -> Self {
+impl From<ui::PaneSelection> for Selection {
+    fn from(selection: ui::PaneSelection) -> Self {
         Selection {
             anchor: selection.anchor.into(),
             focus: selection.focus.into(),

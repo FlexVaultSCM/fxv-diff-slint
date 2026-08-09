@@ -1,4 +1,4 @@
-import { DiffView, DiffRow, DiffPosition, DiffStyle } from "@FxvDiff";
+import { CodeView, DiffView, DiffRow, PanePosition, DiffStyle } from "@FxvDiff";
 
 // Windows of a known size around the view, so tests can reason about the viewport.
 //
@@ -31,8 +31,8 @@ export component Harness inherits Window {
     in property <int> reveal-token;
 
     in property <bool> selectable: false;
-    in-out property <DiffPosition> selection-anchor <=> i-view.selection-anchor;
-    in-out property <DiffPosition> selection-focus <=> i-view.selection-focus;
+    in-out property <PanePosition> selection-anchor <=> i-view.selection-anchor;
+    in-out property <PanePosition> selection-focus <=> i-view.selection-focus;
     out property <int> finished-count: 0;
 
     // The last gap request raised, so a test can assert what a click asked for. Negative
@@ -107,5 +107,35 @@ export component PairedHarness inherits Window {
             scroll-y <=> root.scroll-y;
             preferred-width: 0px;
         }
+    }
+}
+
+// The plain pane on its own, for anything that has to hold for a pane with no diff behind it.
+export component CodeHarness inherits Window {
+    in property <[DiffRow]> rows;
+    in property <int> longest-line-columns: 120;
+
+    out property <length> row-height <=> i-view.row-height;
+    out property <length> max-scroll-y <=> i-view.max-scroll-y;
+    out property <length> scrollable-width <=> i-view.scrollable-width;
+    out property <length> visible-width <=> i-view.visible-width;
+    in-out property <length> scroll-y <=> i-view.scroll-y;
+    in-out property <length> scroll-x <=> i-view.scroll-x;
+
+    width: 800px;
+    height: 400px;
+
+    in property <bool> selectable: false;
+
+    i-view := CodeView {
+        // Pinned to the window, so the viewport is the window rather than the content. A pane
+        // left to itself asks for its whole scrollable width and gets it, and then nothing is
+        // off screen to scroll to.
+        width: root.width;
+        height: root.height;
+        rows: root.rows;
+        longest-line-columns: root.longest-line-columns;
+        gutter-columns: 1;
+        selectable: root.selectable;
     }
 }

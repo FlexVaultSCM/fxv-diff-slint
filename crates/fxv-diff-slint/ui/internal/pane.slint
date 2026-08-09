@@ -2,18 +2,18 @@ import { ListView } from "std-widgets.slint";
 import { DiffStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
 import { PaneMath } from "pane-math.slint";
-import { DiffRowView } from "diff-row.slint";
-import {
-    DiffRow, DiffRowKind, DiffSide, DiffLineRef, PanePosition, PaneSelection, GapExpandRequest,
-} from "types.slint";
+import { RowView } from "row.slint";
+import { DiffRow, DiffRowKind, DiffSide, DiffLineRef, PanePosition, PaneSelection } from "types.slint";
 
-// A pane of monospace text showing a diff.
+// A pane of monospace text: line numbers, highlights, selection, and both axes scrolling.
 //
-// The same pane as `CodeView` with gaps added: rows that stand for content not on screen, and
-// the controls that ask for it. The two cannot be built from one another, because a component
-// that owns a ListView also fixes which row component the list builds and Slint has no way to
-// vary that. What they share instead is `PaneMath` and the row each one draws.
-export component DiffView {
+// Knows nothing about diffs. It is driven by a flat list of rows, and whatever produced them is
+// its own business, so a plain file listing and one side of a diff are the same input here.
+//
+// Both axes scroll natively. The horizontal range comes from the rows' minimum width, which is
+// what a ListView measures to size its scrollable area; assigning its viewport width instead
+// does nothing, because it recomputes that from its rows.
+export component CodeView {
     in property <[DiffRow]> rows;
     in property <bool> show-line-numbers: true;
     /// How many number columns the gutter carries, filled from each row's first number.
@@ -131,31 +131,12 @@ export component DiffView {
     horizontal-stretch: 1;
     vertical-stretch: 1;
 
-    /// How many lines one step of a gap opens.
-    in property <int> gap-expand-step: 20;
-    /// Whether gaps offer to open.
-    ///
-    /// Off by default, because opening one is a request the host has to answer and there is no
-    /// way for this view to know whether it can. A diff with nothing behind it still shows its
-    /// gaps, so the file does not read as continuous, but without controls that lead nowhere.
-    in property <bool> gap-expandable: false;
-    /// Whether this view spells a gap out, or just leaves a band where one is. One pane of a
-    /// split carries the detail; the other would only repeat it in half the width.
-    in property <bool> gap-details: true;
-    /// Whether a fetch is running, which blocks every gap's controls until it answers.
-    ///
-    /// Set by the host, because only the host knows whether it can serve more than one at a
-    /// time. Left false, each gap still blocks its own controls while it waits.
-    in property <bool> gap-busy: false;
-
-    callback gap-expand-requested(GapExpandRequest);
-
     i-list := ListView {
         horizontal-scrollbar-policy: root.show-horizontal-scrollbar
             ? ScrollBarPolicy.as-needed
             : ScrollBarPolicy.always-off;
 
-        for r[i] in root.rows: DiffRowView {
+        for r[i] in root.rows: RowView {
             height: root.row-height;
             data: r;
             advance: i-metrics.advance;
@@ -196,19 +177,6 @@ export component DiffView {
                             : r.right-line,
                     });
                 }
-            }
-
-            expand-step: root.gap-expand-step;
-            gap-expandable: root.gap-expandable;
-            gap-details: root.gap-details;
-            gap-busy: root.gap-busy;
-
-            expand(left, right, count) => {
-                root.gap-expand-requested({
-                    left-start: left,
-                    right-start: right,
-                    count: count,
-                });
             }
         }
     }

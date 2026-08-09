@@ -26,7 +26,7 @@ mod ui {
     slint::include_modules!();
 }
 
-pub use ui::{Harness, PairedHarness};
+pub use ui::{CodeHarness, Harness, PairedHarness};
 
 /// Columns the generated rows occupy. Wide enough that the content overflows the harness
 /// window, so there is something to scroll sideways.
@@ -217,4 +217,14 @@ pub fn first_element(harness: &Harness, id: &str) -> i_slint_backend_testing::El
         .unwrap_or_else(|| {
             panic!("no element with id {id}; queries by id need the debug info build.rs enables")
         })
+}
+
+/// The plain pane, showing the same rows the diff harness uses.
+pub fn code_harness(count: u32) -> CodeHarness {
+    backend();
+    let harness = CodeHarness::new().expect("creating the harness window");
+    let view = RowModel::from_rows(context_rows(count));
+    harness.set_longest_line_columns(view.longest_line_columns());
+    harness.set_rows(view.model());
+    harness
 }

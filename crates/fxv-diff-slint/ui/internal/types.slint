@@ -54,10 +54,12 @@ export struct DiffHighlight {
 
 // A place in a pane: which row, and how far across it.
 //
+// A pane concept, not a diff one: a plain listing has positions in it too.
+//
 // Columns are display columns, not source characters, because that is what a pointer position
 // converts to directly. A row of -1 means "nowhere", which is how the absence of a selection is
 // said without a second property to say it.
-export struct DiffPosition {
+export struct PanePosition {
     row: int,
     column: int,
 }
@@ -71,9 +73,9 @@ export struct DiffPosition {
 // Carried by the callback rather than read back off the view, because a view can sit inside a
 // conditional block where a host cannot reach it, and because two panes of a split each have
 // their own selection that must not become one.
-export struct DiffSelection {
-    anchor: DiffPosition,
-    focus: DiffPosition,
+export struct PaneSelection {
+    anchor: PanePosition,
+    focus: PanePosition,
 }
 
 // One rendered row. The view is driven entirely by a flat list of these, so the inline and

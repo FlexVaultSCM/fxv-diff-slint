@@ -1,0 +1,131 @@
+import { DiffStyle } from "style.slint";
+import { DiffRow, DiffRowKind, DiffGapState } from "types.slint";
+import { GapButton } from "gap-button.slint";
+import { RowView } from "row.slint";
+
+// A row of a diff: an ordinary row, plus the band a gap shows in place of content.
+//
+// Inherits rather than wraps, because a row is instantiated by a ListView and a list cannot be
+// told which component to build. Adding to the base is the only way to have a row that is a
+// row and also knows about gaps.
+export component DiffRowView inherits RowView {
+    /// Asks for `count` lines starting at the given line on each side.
+    callback expand(int, int, int);
+    /// How many lines one step of a gap opens.
+    in property <int> expand-step: 20;
+    /// Whether a gap offers to open at all. Off for a diff nobody can fetch lines for.
+    in property <bool> gap-expandable: false;
+    /// Whether some fetch is running anywhere in this view, which blocks every gap's controls.
+    in property <bool> gap-busy: false;
+    /// Whether this pane spells a gap out, or just leaves a band where one is.
+    ///
+    /// A gap is one thing that happens to be drawn twice when two panes show the same diff.
+    /// Saying so twice reads as two gaps, and repeating a failure message in half the width
+    /// truncates it. So one pane carries the detail and the other only marks the place.
+    in property <bool> gap-details: true;
+
+    // How much one step opens, never more than the gap holds.
+    out property <int> step: min(root.expand-step, root.data.hidden-count);
+    // Opening from one end only makes sense when a step leaves something behind.
+    out property <bool> stepped: root.data.hidden-count > root.expand-step;
+
+    out property <bool> gap-waiting: root.data.kind == DiffRowKind.gap
+        && root.data.gap-state == DiffGapState.waiting;
+    out property <bool> gap-failed: root.data.kind == DiffRowKind.gap
+        && root.data.gap-state == DiffGapState.failed;
+
+    // Controls are drawn whenever a gap could be opened at all, in every state. A failure
+    // leaves them exactly as they were, so retrying is clicking the same control again rather
+    // than hunting for a different one, and the row never changes shape underneath a pointer.
+    out property <bool> gap-openable: root.data.kind == DiffRowKind.gap && root.gap-expandable;
+    // Only this gap's controls stop while this gap is fetching. Another gap is another
+    // request about other lines, and blocking it would be this row speaking for rows it knows
+    // nothing about. A host that can only serve one at a time sets `gap-busy` to say so.
+    out property <bool> gap-blocked: root.gap-waiting || root.gap-busy;
+
+    // What each control would ask for, so the one that is working can be told from the run the
+    // model says is in flight. Derived rather than remembered: the row is rebuilt the moment
+    // the fetch is recorded, which throws away anything it was holding.
+    out property <int> down-start: root.data.right-line;
+    out property <int> up-start: root.data.right-line + root.data.hidden-count - root.step;
+    function working(start: int, count: int) -> bool {
+        root.gap-waiting && root.data.busy-start == start && root.data.busy-count == count
+    }
+
+
+    // A gap's controls and its label, pinned together against the visible left edge so they
+    // stay put while the rest of the row scrolls sideways.
+    //
+    // One layout for both, rather than the label sitting in the body above, because then the
+    // label simply lands after whatever controls the gap's state calls for. Positioning it by
+    // hand would mean predicting their combined width, and that width depends on the digits in
+    // a line count and on whether icons have been supplied.
+    //
+    // A gap can be opened a piece at a time from either end, which is what makes a large one
+    // usable: a few lines of extra context is the common need, not the whole span. When the
+    // gap is no larger than a step there is only one thing to do, so only one control shows.
+    if root.data.kind == DiffRowKind.gap && root.gap-details: HorizontalLayout {
+        x: -root.scroll-x + DiffStyle.gutter-padding;
+        y: 0;
+        height: parent.height;
+        spacing: DiffStyle.gutter-padding;
+        // Otherwise the group spreads across the row rather than sitting at the margin.
+        alignment: start;
+
+        if root.gap-openable && root.stepped: GapButton {
+            icon: DiffStyle.gap-expand-down-icon;
+            label: root.step;
+            busy: root.working(root.down-start, root.step);
+            blocked: root.gap-blocked;
+            // Opens the top of the gap, next to the hunk above it.
+            clicked => {
+                root.expand(root.data.left-line, root.data.right-line, root.step);
+            }
+        }
+
+        if root.gap-openable && root.stepped: GapButton {
+            icon: DiffStyle.gap-expand-up-icon;
+            label: root.step;
+            busy: root.working(root.up-start, root.step);
+            blocked: root.gap-blocked;
+            // Opens the bottom, next to the hunk below.
+            clicked => {
+                root.expand(
+                    root.data.left-line + root.data.hidden-count - root.step,
+                    root.data.right-line + root.data.hidden-count - root.step,
+                    root.step);
+            }
+        }
+
+        if root.gap-openable: GapButton {
+            icon: DiffStyle.gap-expand-all-icon;
+            label: root.data.hidden-count;
+            busy: root.working(root.down-start, root.data.hidden-count);
+            blocked: root.gap-blocked;
+            clicked => {
+                root.expand(
+                    root.data.left-line, root.data.right-line, root.data.hidden-count);
+            }
+        }
+
+        Text {
+            // How many lines the gap stands for and what is happening to them. `data.text` is
+            // the hunk heading, or the reason a fetch failed, so this reads as
+            // "12 hidden    fn thing()" or "12 could not be read    no such revision".
+            // Kept at its natural width so a long failure message runs past the pane edge and
+            // is clipped there, rather than being squeezed into whatever the layout has left.
+            width: self.preferred-width;
+            text: root.data.hidden-count
+                + (root.gap-waiting ? " loading"
+                    : root.gap-failed ? " could not be read"
+                    : " hidden")
+                + (root.data.text == "" ? "" : "    " + root.data.text);
+            font-family: DiffStyle.font-family;
+            font-size: DiffStyle.font-size;
+            letter-spacing: root.letter-spacing;
+            color: DiffStyle.text-color;
+            vertical-alignment: center;
+        }
+    }
+
+}

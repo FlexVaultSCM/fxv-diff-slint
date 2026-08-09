@@ -1,6 +1,7 @@
 // The public surface of this crate. Everything importable from "@FxvDiff" is listed here and
 // nowhere else; everything under internal/ is private.
 
+import { CodeView } from "internal/pane.slint";
 import { DiffView } from "internal/diff-view.slint";
 import { DiffStyle } from "internal/style.slint";
 import { DiffScrollbar } from "internal/scrollbar.slint";
@@ -9,18 +10,27 @@ import {
     DiffRowKind,
     DiffGapState,
     DiffHighlight,
-    DiffPosition,
-    DiffSelection,
+    PanePosition,
+    PaneSelection,
     DiffSide,
     DiffLineRef,
     DiffLayoutMode,
     GapExpandRequest,
 } from "internal/types.slint";
 
-// DiffScrollbar is only ever instantiated from .slint, which is just as well: the generated
-// Rust module contains only the last exported component, so DiffView has to come after it.
+// Both panes are importable on their own: `CodeView` shows monospace text with line numbers,
+// highlights and selection, and `DiffView` is the same pane with gaps and their controls added.
+// Neither is built from the other, because a component that owns a ListView also fixes which
+// row component the list builds; what they share is their row and their arithmetic.
+//
+// CodeView and DiffScrollbar are instantiated from .slint only, which is just as well: the
+// generated Rust module contains only the last exported component, so DiffView comes after
+// both. A consumer instantiating CodeView in its own markup is unaffected by that.
 export { DiffScrollbar }
+export { CodeView }
 export { DiffView, DiffStyle }
 export { DiffRow, DiffRowKind, DiffGapState, DiffSide, DiffLineRef, DiffLayoutMode }
-export { DiffHighlight, DiffPosition, DiffSelection }
+export { DiffHighlight }
+// Pane vocabulary rather than diff vocabulary: both panes speak it.
+export { PanePosition, PaneSelection }
 export { GapExpandRequest }

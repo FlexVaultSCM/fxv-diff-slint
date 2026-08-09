@@ -10,7 +10,7 @@ use slint::platform::{PointerEventButton, WindowEvent};
 use slint::{ComponentHandle, LogicalPosition};
 
 // == Internal Crates
-use fxv_diff_slint::DiffPosition;
+use fxv_diff_slint::PanePosition;
 use fxv_diff_slint_tests::{harness, settle, Harness};
 
 const ROWS: u32 = 30;
@@ -24,7 +24,7 @@ fn selectable(count: u32) -> Harness {
 
 /// Every selection rectangle on screen, as (x, width).
 fn painted(h: &Harness) -> Vec<(f32, f32)> {
-    ElementHandle::find_by_element_id(h, "DiffRowView::i-selection")
+    ElementHandle::find_by_element_id(h, "RowView::i-selection")
         .map(|e| (e.absolute_position().x, e.size().width))
         .collect()
 }
@@ -150,8 +150,8 @@ fn drag(h: &Harness, path: &[(f32, f32)]) {
 }
 
 /// A selection end, for setting one without a gesture.
-fn at_row(row: i32, column: i32) -> DiffPosition {
-    DiffPosition { row, column }
+fn at_row(row: i32, column: i32) -> PanePosition {
+    PanePosition { row, column }
 }
 
 /// A point inside the first half of a column, in window coordinates.

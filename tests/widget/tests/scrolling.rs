@@ -82,20 +82,16 @@ fn content_moves_sideways_while_the_gutter_stays_put() {
     // stay readable however far right the view has scrolled.
     let h = harness(20);
     settle();
-    let gutter_before = first_element(&h, "DiffRowView::i-gutter")
-        .absolute_position()
-        .x;
-    let content_before = first_element(&h, "DiffRowView::i-content")
+    let gutter_before = first_element(&h, "RowView::i-gutter").absolute_position().x;
+    let content_before = first_element(&h, "RowView::i-content")
         .absolute_position()
         .x;
 
     h.set_scroll_x(-100.0);
     settle();
 
-    let gutter_after = first_element(&h, "DiffRowView::i-gutter")
-        .absolute_position()
-        .x;
-    let content_after = first_element(&h, "DiffRowView::i-content")
+    let gutter_after = first_element(&h, "RowView::i-gutter").absolute_position().x;
+    let content_after = first_element(&h, "RowView::i-content")
         .absolute_position()
         .x;
 
@@ -114,7 +110,7 @@ fn a_row_is_drawn_across_the_whole_scrollable_width() {
     // centred by default, which shifts every line left by half the overflow.
     let h = harness(20);
     settle();
-    let body = first_element(&h, "DiffRowView::i-body");
+    let body = first_element(&h, "RowView::i-body");
 
     assert!(
         body.size().width >= h.get_scrollable_width(),
@@ -143,13 +139,13 @@ fn the_rows_declare_a_horizontal_range_for_the_list_to_scroll() {
 
     h.set_scroll_x(-50.0);
     settle();
-    let content = first_element(&h, "DiffRowView::i-content")
+    let content = first_element(&h, "RowView::i-content")
         .absolute_position()
         .x;
 
     h.set_scroll_x(-150.0);
     settle();
-    let moved = first_element(&h, "DiffRowView::i-content")
+    let moved = first_element(&h, "RowView::i-content")
         .absolute_position()
         .x;
 

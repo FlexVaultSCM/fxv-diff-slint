@@ -1,6 +1,7 @@
 import { Button, ComboBox, LineEdit, TabWidget } from "std-widgets.slint";
 import {
-    DiffView, DiffScrollbar, DiffRow, DiffSelection, DiffSide, DiffStyle, GapExpandRequest,
+    CodeView, DiffView, DiffScrollbar, DiffRow, PaneSelection, DiffSide, DiffStyle,
+    GapExpandRequest,
 } from "@FxvDiff";
 
 export component MainWindow inherits Window {
@@ -63,7 +64,7 @@ export component MainWindow inherits Window {
     callback find-previous();
     // Reports a finished drag, with which pane it happened in: 0 inline, 1 left, 2 right,
     // 3 standalone, matching the order the application names its panes in.
-    callback selection-finished(int, DiffSelection);
+    callback selection-finished(int, PaneSelection);
     // Rows are built for whichever layout is on screen, so switching needs a rebuild.
     callback layout-changed();
     // Forwarded from whichever view raised it; the host owns fetching the lines.
@@ -186,8 +187,9 @@ export component MainWindow inherits Window {
                         }
                     }
 
-                    // The same pane, with no diff behind it: one number column, no gaps.
-                    DiffView {
+                    // The plain pane, which is a different component rather than a diff view
+                    // with its gaps switched off: there is no diff here to have gaps in.
+                    CodeView {
                         rows: root.plain-rows;
                         longest-line-columns: root.plain-columns;
                         gutter-columns: 1;

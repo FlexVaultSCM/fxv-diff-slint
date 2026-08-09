@@ -15,7 +15,7 @@ use fxv_diff_slint_tests::{
 /// Two queries because the columns are separate elements and Slint ids are unique within a
 /// component, so they cannot share one.
 fn numbers(harness: &Harness) -> Vec<String> {
-    ["DiffRowView::i-number", "DiffRowView::i-number-2"]
+    ["RowView::i-number", "RowView::i-number-2"]
         .into_iter()
         .flat_map(|id| i_slint_backend_testing::ElementHandle::find_by_element_id(harness, id))
         .filter_map(|e| e.accessible_label().map(|l| l.to_string()))

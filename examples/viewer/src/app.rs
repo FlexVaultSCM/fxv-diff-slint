@@ -9,9 +9,9 @@ use std::rc::Rc;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines,
-    DiffSelection, DiffSet, DisplayColumnExtent, DisplayedRow, Pane, RenderOptions, RowModel,
-    RowOptions, Selection, Side,
+    build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines, DiffSet,
+    DisplayColumnExtent, DisplayedRow, Pane, PaneSelection, RenderOptions, RowModel, RowOptions,
+    Selection, Side,
 };
 
 // == External Crates
@@ -339,7 +339,7 @@ impl App {
     ///
     /// The view has drawn it already; this is the moment the gesture is worth turning into
     /// something durable. For now it only says what was selected.
-    pub fn selection_finished(&self, pane: i32, selection: DiffSelection) {
+    pub fn selection_finished(&self, pane: i32, selection: PaneSelection) {
         let which = match pane {
             0 => Which::Inline,
             1 => Which::Left,

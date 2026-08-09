@@ -13,7 +13,7 @@ use fxv_diff_slint_tests::{columns, harness, harness_with_highlights, settle, to
 /// One element exists per highlight per row, so a view with highlights on one row yields
 /// exactly that row's highlights however many rows are loaded.
 fn painted(harness: &fxv_diff_slint_tests::Harness) -> Vec<(f32, f32)> {
-    i_slint_backend_testing::ElementHandle::find_by_element_id(harness, "DiffRowView::i-highlight")
+    i_slint_backend_testing::ElementHandle::find_by_element_id(harness, "RowView::i-highlight")
         .map(|h| (h.absolute_position().x, h.size().width))
         .collect()
 }
