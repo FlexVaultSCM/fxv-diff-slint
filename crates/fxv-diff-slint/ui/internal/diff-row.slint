@@ -25,14 +25,14 @@ export component DiffRowView inherits RowView {
     in property <bool> gap-details: true;
 
     // How much one step opens, never more than the gap holds.
-    out property <int> step: min(root.expand-step, root.data.hidden-count);
+    out property <int> step: min(root.expand-step, root.data.gap.hidden-count);
     // Opening from one end only makes sense when a step leaves something behind.
-    out property <bool> stepped: root.data.hidden-count > root.expand-step;
+    out property <bool> stepped: root.data.gap.hidden-count > root.expand-step;
 
     out property <bool> gap-waiting: root.data.class == DiffRowClasses.gap
-        && root.data.gap-state == DiffGapState.waiting;
+        && root.data.gap.state == DiffGapState.waiting;
     out property <bool> gap-failed: root.data.class == DiffRowClasses.gap
-        && root.data.gap-state == DiffGapState.failed;
+        && root.data.gap.state == DiffGapState.failed;
 
     // Controls are drawn whenever a gap could be opened at all, in every state. A failure
     // leaves them exactly as they were, so retrying is clicking the same control again rather
@@ -46,10 +46,11 @@ export component DiffRowView inherits RowView {
     // What each control would ask for, so the one that is working can be told from the run the
     // model says is in flight. Derived rather than remembered: the row is rebuilt the moment
     // the fetch is recorded, which throws away anything it was holding.
-    out property <int> down-start: root.data.right-line;
-    out property <int> up-start: root.data.right-line + root.data.hidden-count - root.step;
+    out property <int> down-start: root.data.gap.start-right;
+    out property <int> up-start:
+        root.data.gap.start-right + root.data.gap.hidden-count - root.step;
     function working(start: int, count: int) -> bool {
-        root.gap-waiting && root.data.busy-start == start && root.data.busy-count == count
+        root.gap-waiting && root.data.gap.busy-start == start && root.data.gap.busy-count == count
     }
 
 
@@ -79,7 +80,7 @@ export component DiffRowView inherits RowView {
             blocked: root.gap-blocked;
             // Opens the top of the gap, next to the hunk above it.
             clicked => {
-                root.expand(root.data.left-line, root.data.right-line, root.step);
+                root.expand(root.data.gap.start-left, root.data.gap.start-right, root.step);
             }
         }
 
@@ -91,20 +92,23 @@ export component DiffRowView inherits RowView {
             // Opens the bottom, next to the hunk below.
             clicked => {
                 root.expand(
-                    root.data.left-line + root.data.hidden-count - root.step,
-                    root.data.right-line + root.data.hidden-count - root.step,
+                    root.data.gap.start-left + root.data.gap.hidden-count - root.step,
+                    root.data.gap.start-right + root.data.gap.hidden-count - root.step,
                     root.step);
             }
         }
 
         if root.gap-openable: GapButton {
             icon: DiffStyle.gap-expand-all-icon;
-            label: root.data.hidden-count;
-            busy: root.working(root.down-start, root.data.hidden-count);
+            label: root.data.gap.hidden-count;
+            busy: root.working(root.down-start, root.data.gap.hidden-count);
             blocked: root.gap-blocked;
             clicked => {
                 root.expand(
-                    root.data.left-line, root.data.right-line, root.data.hidden-count);
+                    root.data.gap.start-left,
+                    root.data.gap.start-right,
+                    root.data.gap.hidden-count,
+                );
             }
         }
 
@@ -112,17 +116,17 @@ export component DiffRowView inherits RowView {
             // Read back by the widget tests, since what a band drew is otherwise invisible.
             accessible-role: text;
             accessible-label: self.text;
-            // How many lines the gap stands for and what is happening to them. `data.note` is
+            // How many lines the gap stands for and what is happening to them. `gap.note` is
             // the hunk heading, or the reason a fetch failed, so this reads as
             // "12 hidden    fn thing()" or "12 could not be read    no such revision".
             // Kept at its natural width so a long failure message runs past the pane edge and
             // is clipped there, rather than being squeezed into whatever the layout has left.
             width: self.preferred-width;
-            text: root.data.hidden-count
+            text: root.data.gap.hidden-count
                 + (root.gap-waiting ? " loading"
                     : root.gap-failed ? " could not be read"
                     : " hidden")
-                + (root.data.note == "" ? "" : "    " + root.data.note);
+                + (root.data.gap.note == "" ? "" : "    " + root.data.gap.note);
             font-family: DiffStyle.font-family;
             font-size: DiffStyle.font-size;
             letter-spacing: root.letter-spacing;

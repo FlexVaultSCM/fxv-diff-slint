@@ -60,6 +60,23 @@ impl RowClass {
     pub const FIRST_FREE: RowClass = RowClass(6);
 }
 
+/// A run of lines that exists but is not shown, and what is happening to it.
+///
+/// Only a diff produces these. It lives beside the row rather than inside it so that a row
+/// which is a line stays a line.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Gap {
+    /// How many lines are hidden.
+    pub hidden: u32,
+    pub state: GapState,
+    /// The hunk heading this gap precedes, or why fetching it failed.
+    pub note: SharedString,
+    /// Where the hidden run starts, on each side. What the controls ask for.
+    pub start: (u32, u32),
+    /// The run being fetched, numbered on the right, when one is.
+    pub pending: Option<(u32, u32)>,
+}
+
 /// One row as a pane will draw it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DisplayedRow {
@@ -89,16 +106,12 @@ pub struct DisplayedRow {
     pub text: SharedString,
     /// Columns the text occupies.
     pub columns: u32,
-    /// How many lines a gap is hiding. Zero for every other kind.
-    pub hidden_count: u32,
-    /// Only meaningful on a gap.
-    pub gap_state: GapState,
-    /// A gap's hunk heading, or why its fetch failed. Empty otherwise.
-    pub note: SharedString,
-    /// Where a gap's hidden run starts, on each side.
-    pub gap_start: (u32, u32),
-    /// The run of a gap being fetched, numbered on the right, when one is.
-    pub pending: Option<(u32, u32)>,
+    /// What this row stands for, when it stands for content rather than showing it.
+    ///
+    /// `None` on an ordinary line, which is every row a pane showing a plain file has. Grouped
+    /// rather than spread across the row so that a pane with no gaps carries one empty option
+    /// instead of five fields it will never fill.
+    pub gap: Option<Gap>,
     /// Whether a selection may cover this row. Gaps and headers break a selection; a filler
     /// does not, being a real position in a pane that simply holds no line.
     pub selectable: bool,
@@ -155,11 +168,7 @@ impl DisplayedRow {
             source: None,
             text: SharedString::new(),
             columns: 0,
-            hidden_count: 0,
-            gap_state: GapState::Hidden,
-            note: SharedString::new(),
-            gap_start: (0, 0),
-            pending: None,
+            gap: None,
             selectable: false,
             selectable_run: 0..0,
         }

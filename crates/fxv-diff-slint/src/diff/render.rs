@@ -12,7 +12,7 @@ use super::layout::{Layout, Line, Row};
 use super::model::{FileDiff, LineKind};
 use crate::span::Side;
 use crate::text::{render_line, RenderOptions};
-use crate::view::{DisplayedRow, RowClass, GUTTER_COLUMNS};
+use crate::view::{DisplayedRow, Gap, RowClass, GUTTER_COLUMNS};
 
 /// Which part of a layout a pane shows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,11 +65,13 @@ fn display(entry: &Row, file: &FileDiff, opts: &RenderOptions, pane: Pane) -> Di
             // A failure explains itself; otherwise the heading names what follows.
             let note = reason.as_deref().or(heading.as_deref()).unwrap_or_default();
             DisplayedRow {
-                hidden_count: *hidden,
-                gap_state: *state,
-                note: note.into(),
-                gap_start: (*left_start, *right_start),
-                pending: *pending,
+                gap: Some(Gap {
+                    hidden: *hidden,
+                    state: *state,
+                    note: note.into(),
+                    start: (*left_start, *right_start),
+                    pending: *pending,
+                }),
                 // The band drawn over a gap takes the gutter with it, and a gap names no line.
                 full_width: true,
                 ..DisplayedRow::blank(RowClass::GAP)

@@ -64,6 +64,24 @@ export struct PaneSelection {
     focus: PanePosition,
 }
 
+// A run of lines that exists but is not shown, and what is happening to it.
+//
+// Only a diff produces these. Grouped rather than spread across the row so that a pane showing
+// a plain file carries one empty struct rather than five fields it will never fill.
+export struct DiffGap {
+    // How many lines are hidden. Zero on a row that is not a gap.
+    hidden-count: int,
+    state: DiffGapState,
+    // The hunk heading this gap precedes, or why fetching it failed.
+    note: string,
+    // Where the hidden run starts, on each side. What the controls ask for.
+    start-left: int,
+    start-right: int,
+    // The run being fetched, numbered on the right. A zero count means nothing is.
+    busy-start: int,
+    busy-count: int,
+}
+
 // One rendered row. The view is driven entirely by a flat list of these, so the inline and
 // side-by-side layouts differ only in how the list was built, not in how it is drawn.
 export struct DiffRow {
@@ -91,23 +109,13 @@ export struct DiffRow {
     // The line content, already tab-expanded, without the leading +/-/space marker. On a gap
     // row this is the hunk heading, or the reason a fetch failed.
     text: string,
-    // What a row that is not a line has to say for itself, drawn by whatever draws that kind
-    // of row. A gap's heading, or why fetching it failed.
-    note: string,
     // How many display columns the text occupies. Not the string's length: a tab has already
     // been expanded and a wide character takes two. This is where the text ends, which is
     // where a selection on this row stops.
     columns: int,
-    // How many lines this gap hides. Only meaningful when kind is gap.
-    hidden-count: int,
-    gap-state: DiffGapState,
-    // The run of a gap being fetched, numbered on the right. A zero count means nothing is.
-    // A view compares this against what each of its controls would ask for, to know which one
-    // to show as working. Carried in the data rather than remembered by the row, because the
-    // row is rebuilt the moment the fetch is recorded.
-    busy-start: int,
-    busy-count: int,
-    // Ranges to paint behind the text. Empty on most rows.
+    // What this row stands for when it stands for content rather than showing it. A hidden
+    // count of zero means it is an ordinary line and none of the rest applies.
+    gap: DiffGap,
     highlights: [DiffHighlight],
     // The run of selectable rows this one belongs to, as row indices, end exclusive. A
     // selection may not cross a gap or a header, so a drag clamps to the run it began in.

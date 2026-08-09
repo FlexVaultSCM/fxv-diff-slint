@@ -171,7 +171,6 @@ export component RowView {
             background: DiffStyle.channel-backgrounds[highlight.channel];
         }
 
-        // A gap describes itself alongside its controls instead, further down.
         i-content := Text {
             // Content sits to the right of the gutter and scrolls with the list. A header
             // describes the file rather than sitting in it, so it is pinned against the
@@ -207,9 +206,8 @@ export component RowView {
                 // invisible from outside.
                 accessible-role: text;
                 accessible-label: self.text;
-                // Zero means this row has no number in that column. Gaps and fillers do carry
-                // numbers, since expanding a gap has to know where to read from, but showing
-                // one against a blank row would misdescribe it.
+                // Zero means this row has no number in that column, which a filler has and a
+                // row that names no line at all has.
                 text: root.data.numbered && root.data.left-line > 0 ? root.data.left-line : "";
                 horizontal-alignment: right;
                 vertical-alignment: center;

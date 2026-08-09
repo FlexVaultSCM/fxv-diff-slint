@@ -17,7 +17,7 @@ use slint::{Model, ModelRc, VecModel};
 use crate::diff::layout::GapState;
 use crate::span::Side;
 use crate::ui;
-use crate::view::row::{Channel, DisplayColumnExtent, DisplayedRow, Highlight, RowClass};
+use crate::view::row::{Channel, DisplayColumnExtent, DisplayedRow, Gap, Highlight};
 
 /// The rows a pane is showing, in both the form this crate reasons about and the form the
 /// widget draws, kept together so highlights can change without either being rebuilt.
@@ -235,33 +235,20 @@ impl From<&DisplayedRow> for ui::DiffRow {
         // starts. Opening one has to say which lines to fetch, and that is the only thing it
         // has to say. Losing this makes every gap ask for line zero, so whichever one is
         // clicked, the first one opens.
-        // A gap carries where its hidden run starts rather than a line of its own, and the
-        // controls need it to say what to fetch.
-        let (left, right) = if row.class == RowClass::GAP {
-            row.gap_start
-        } else {
-            (row.numbers[0].unwrap_or(0), row.numbers[1].unwrap_or(0))
-        };
-
         ui::DiffRow {
             class: row.class.0 as i32,
             numbered: row.numbered,
             full_width: row.full_width,
             // Zero means "no number in this column". Line numbers are 1-based, so it cannot
             // collide with a real one.
-            left_line: left as i32,
-            right_line: right as i32,
+            left_line: row.numbers[0].unwrap_or(0) as i32,
+            right_line: row.numbers[1].unwrap_or(0) as i32,
             text: row.text.clone(),
-            note: row.note.clone(),
             id_side: row.id.map_or(ui::DiffSide::Both, |(side, _)| side.into()),
             // Zero means this row names no line. A row that does have one is 1-based.
             id_line: row.id.map_or(0, |(_, line)| line) as i32,
             columns: row.columns as i32,
-            hidden_count: row.hidden_count as i32,
-            gap_state: row.gap_state.into(),
-            // Zero count means nothing is in flight. A fetch of no lines is not a thing.
-            busy_start: row.pending.map_or(0, |(start, _)| start) as i32,
-            busy_count: row.pending.map_or(0, |(_, count)| count) as i32,
+            gap: row.gap.as_ref().map(gap_of).unwrap_or_default(),
             highlights: ModelRc::default(),
             // An empty run is how a row says it is not selectable at all.
             run_start: row.selectable_run.start as i32,
@@ -308,6 +295,20 @@ fn to_slint_highlights(highlights: &[Highlight]) -> ModelRc<ui::DiffHighlight> {
     ModelRc::from(Rc::new(VecModel::from(converted)))
 }
 
+/// Packs a gap into the form the widget binds to.
+fn gap_of(gap: &Gap) -> ui::DiffGap {
+    ui::DiffGap {
+        hidden_count: gap.hidden as i32,
+        state: gap.state.into(),
+        note: gap.note.clone(),
+        start_left: gap.start.0 as i32,
+        start_right: gap.start.1 as i32,
+        // Zero count means nothing is in flight. A fetch of no lines is not a thing.
+        busy_start: gap.pending.map_or(0, |(start, _)| start) as i32,
+        busy_count: gap.pending.map_or(0, |(_, count)| count) as i32,
+    }
+}
+
 impl From<Side> for ui::DiffSide {
     fn from(side: Side) -> Self {
         match side {
@@ -336,6 +337,7 @@ mod tests {
     use crate::span::Side;
     use crate::test_fixtures::{file, shown};
     use crate::text::RenderOptions;
+    use crate::view::row::RowClass;
     use std::ops::Range;
 
     fn kinds(rows: &[DisplayedRow]) -> Vec<RowClass> {
@@ -542,8 +544,9 @@ mod tests {
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
         let gap = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
 
-        assert!(gap.hidden_count > 0);
-        assert_eq!(gap.gap_start, (1, 1), "the hidden run starts at line one");
+        let gap = gap.gap.as_ref().expect("a gap row stands for a gap");
+        assert!(gap.hidden > 0);
+        assert_eq!(gap.start, (1, 1), "the hidden run starts at line one");
     }
 
     // == Handing rows to the widget
@@ -561,28 +564,39 @@ mod tests {
 
     #[test]
     fn a_gap_hands_over_where_its_hidden_run_starts() {
-        // The two number fields carry the start, because a gap draws no numbers and opening
-        // one has to say which lines to ask for. Without it every gap requests line zero and
-        // clicking any of them opens the first.
+        // Opening a gap has to say which lines to ask for, and a gap draws no line numbers of
+        // its own, so the start travels in the gap rather than in the row's number fields.
+        // It used to travel in those fields, which meant a row that named no line appeared to
+        // name one.
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let gap = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
-        let converted = ui::DiffRow::from(gap);
+        let row = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
+        let converted = ui::DiffRow::from(row);
 
+        let gap = row.gap.as_ref().unwrap();
         assert_eq!(
-            (converted.left_line as u32, converted.right_line as u32),
-            gap.gap_start
+            (
+                converted.gap.start_left as u32,
+                converted.gap.start_right as u32
+            ),
+            gap.start
         );
-        assert!(converted.left_line > 0, "a real line to fetch from");
+        assert!(converted.gap.start_left > 0, "a real line to fetch from");
+        assert_eq!(converted.left_line, 0, "and the row still names no line");
+        assert_eq!(converted.right_line, 0);
     }
 
     #[test]
-    fn a_gap_hands_over_its_note_rather_than_its_text() {
+    fn a_gap_hands_over_its_note_beside_its_text() {
+        // The pane draws every row's text, so a gap putting its heading there would have it
+        // drawn twice: once by the pane and once by the band.
         let f = file();
         let rows = shown(&build_inline(&f, &RowOptions::default()), &f, Pane::Inline);
-        let gap = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
+        let row = rows.iter().find(|r| r.class == RowClass::GAP).unwrap();
+        let converted = ui::DiffRow::from(row);
 
-        assert_eq!(ui::DiffRow::from(gap).text, gap.note);
+        assert_eq!(converted.gap.note, row.gap.as_ref().unwrap().note);
+        assert_eq!(converted.text, "", "a gap has no text of its own");
     }
 
     // == Highlights

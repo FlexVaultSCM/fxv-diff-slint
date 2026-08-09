@@ -61,7 +61,7 @@ pub use text::{
     strip_terminator, LineEnding, RenderOptions,
 };
 pub use view::{Channel, DisplayColumnExtent, Highlight};
-pub use view::{DisplayedRow, RowClass, RowModel, GUTTER_COLUMNS};
+pub use view::{DisplayedRow, Gap, RowClass, RowModel, GUTTER_COLUMNS};
 
 // Machine-generated, and it names everything through full paths. That is correct for
 // generated code and not something to lint.
