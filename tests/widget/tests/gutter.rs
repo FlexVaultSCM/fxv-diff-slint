@@ -7,8 +7,8 @@
 
 // == Internal Crates
 use fxv_diff_slint_tests::{
-    harness, harness_with_columns, harness_with_gap, harness_with_rows, settle, two_numbered_rows,
-    Harness,
+    Harness, harness, harness_with_columns, harness_with_gap, harness_with_rows, settle,
+    two_numbered_rows,
 };
 
 /// Every number the gutter is showing, across both of its columns.

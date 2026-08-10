@@ -11,7 +11,7 @@ use slint::{ComponentHandle, LogicalPosition};
 
 // == Internal Crates
 use fxv_diff_slint::CodePosition;
-use fxv_diff_slint_tests::{harness, settle, Harness};
+use fxv_diff_slint_tests::{Harness, harness, settle};
 
 const ROWS: u32 = 30;
 

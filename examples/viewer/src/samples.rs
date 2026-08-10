@@ -4,7 +4,7 @@
 //! diffs from, a way to name what it found, and a way to fetch lines it has not been given.
 
 // == Internal Crates
-use fxv_diff_slint::{parse_unified_diff, FileChange, FileDiff};
+use fxv_diff_slint::{FileChange, FileDiff, parse_unified_diff};
 
 /// Diffs to browse, most taken from this repository's own history so they contain real code
 /// rather than something contrived.

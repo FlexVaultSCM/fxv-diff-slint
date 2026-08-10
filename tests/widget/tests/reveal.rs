@@ -5,7 +5,7 @@
 //! same place on screen with its surroundings visible either side.
 
 // == Internal Crates
-use fxv_diff_slint_tests::{harness, paired_harness, settle, Harness};
+use fxv_diff_slint_tests::{Harness, harness, paired_harness, settle};
 
 const ROWS: u32 = 200;
 

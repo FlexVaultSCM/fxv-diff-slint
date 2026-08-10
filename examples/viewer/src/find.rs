@@ -13,7 +13,7 @@ use std::ops::Range;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    map_span, Channel, DisplayColumnExtent, Document, FileDiff, RenderOptions, RowModel,
+    Channel, DisplayColumnExtent, Document, FileDiff, RenderOptions, RowModel, map_span,
 };
 
 // == Crate

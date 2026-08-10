@@ -333,25 +333,31 @@ mod tests {
             .map(|l| l.text.as_str())
             .collect();
         assert_eq!(flagged, vec!["gamma", "delta"]);
-        assert!(lines
-            .iter()
-            .any(|l| l.text == "alpha" && !l.no_newline_at_eof()));
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.text == "alpha" && !l.no_newline_at_eof())
+        );
     }
 
     #[test]
     fn records_which_terminator_a_line_had() {
         // The same content, read from a file written with CRLF and one written with LF.
         let crlf = one_file("git_crlf");
-        assert!(crlf.hunks()[0]
-            .lines
-            .iter()
-            .all(|l| l.line_ending == LineEnding::CrLf));
+        assert!(
+            crlf.hunks()[0]
+                .lines
+                .iter()
+                .all(|l| l.line_ending == LineEnding::CrLf)
+        );
 
         let lf = one_file("git_modify");
-        assert!(lf.hunks()[0]
-            .lines
-            .iter()
-            .all(|l| l.line_ending == LineEnding::Lf));
+        assert!(
+            lf.hunks()[0]
+                .lines
+                .iter()
+                .all(|l| l.line_ending == LineEnding::Lf)
+        );
 
         // A file with no final newline reports that on its last line only.
         let none = one_file("git_nonewline");

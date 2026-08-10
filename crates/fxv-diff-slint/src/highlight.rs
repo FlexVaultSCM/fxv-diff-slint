@@ -17,7 +17,7 @@
 // == Internal Crates
 use crate::diff::model::FileDiff;
 use crate::span::{LineSpan, SourceCharExtent};
-use crate::text::{display_column_of, map_span, RenderOptions};
+use crate::text::{RenderOptions, display_column_of, map_span};
 use crate::view::{DisplayColumnExtent, RowModel};
 
 /// Where to draw a set of spans, as a range against the row that carries each line.
@@ -69,8 +69,8 @@ pub fn to_highlights(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::diff::render::{render_diff, DiffPane};
-    use crate::selection::{to_spans, Caret, Selection};
+    use crate::diff::render::{DiffPane, render_diff};
+    use crate::selection::{Caret, Selection, to_spans};
     use crate::span::Document;
     use crate::test_fixtures::{file, inline, inline_view, removed_row, rows};
     use crate::view::RowModel;

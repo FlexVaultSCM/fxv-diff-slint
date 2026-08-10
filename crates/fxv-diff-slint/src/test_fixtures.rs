@@ -8,10 +8,10 @@
 use std::fs;
 
 // == Internal Crates
-use crate::diff::layout::{build_inline, build_split, Layout, RowOptions};
+use crate::diff::layout::{Layout, RowOptions, build_inline, build_split};
 use crate::diff::model::FileDiff;
 use crate::diff::parse::parse_unified_diff;
-use crate::diff::render::{render_diff, DiffPane};
+use crate::diff::render::{DiffPane, render_diff};
 use crate::text::RenderOptions;
 use crate::view::{DisplayedRow, RowClass, RowModel};
 

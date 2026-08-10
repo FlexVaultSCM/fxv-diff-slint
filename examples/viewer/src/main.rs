@@ -18,7 +18,7 @@ mod samples;
 
 use app::App;
 use fxv_diff_slint::Document;
-use samples::{fetch, SAMPLES};
+use samples::{SAMPLES, fetch};
 
 // Machine-generated; see the note on the library's `ui` module.
 //

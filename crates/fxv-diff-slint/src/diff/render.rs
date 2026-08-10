@@ -11,8 +11,8 @@
 use super::layout::{Layout, Line, Row};
 use super::model::{FileDiff, LineKind};
 use crate::span::Document;
-use crate::text::{render_line, RenderOptions};
-use crate::view::{DisplayedRow, Gap, RowClass, GUTTER_COLUMNS};
+use crate::text::{RenderOptions, render_line};
+use crate::view::{DisplayedRow, GUTTER_COLUMNS, Gap, RowClass};
 
 /// Which reading of a diff a pane is showing.
 ///

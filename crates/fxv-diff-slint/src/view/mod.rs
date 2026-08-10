@@ -16,5 +16,5 @@ pub mod row;
 
 pub use model::RowModel;
 pub use row::{
-    Channel, DisplayColumnExtent, DisplayedRow, Gap, Highlight, RowClass, GUTTER_COLUMNS,
+    Channel, DisplayColumnExtent, DisplayedRow, GUTTER_COLUMNS, Gap, Highlight, RowClass,
 };

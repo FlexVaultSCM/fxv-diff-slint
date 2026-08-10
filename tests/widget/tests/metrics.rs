@@ -5,7 +5,7 @@
 //! changed, which is never accidental.
 
 // == Internal Crates
-use fxv_diff_slint_tests::{harness, COLUMNS};
+use fxv_diff_slint_tests::{COLUMNS, harness};
 
 /// DejaVu Sans Mono at 13px advances 7.827px and lays out lines 15.13px apart. Both are
 /// rounded up, because the grid has to sit on whole pixels.

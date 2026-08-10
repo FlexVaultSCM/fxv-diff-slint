@@ -19,7 +19,7 @@ use crate::diff::layout::GapState;
 use crate::diff::model::LineRef;
 use crate::span::Document;
 use crate::text::LineEnding;
-use crate::text::{render_line, RenderOptions};
+use crate::text::{RenderOptions, render_line};
 
 /// How many numbers a gutter can show at once.
 ///

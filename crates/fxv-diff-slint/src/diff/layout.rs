@@ -408,7 +408,7 @@ impl<'a> GapWalker<'a> {
                         state: GapState::Waiting,
                         pending: Some((fetch.right_start, fetch.count)),
                         reason: None,
-                    }
+                    };
                 }
                 FetchState::Failed(why) => failure = Some(why.clone()),
             }
@@ -608,10 +608,12 @@ mod tests {
     #[test]
     fn a_file_header_is_opt_in() {
         let f = file(vec![change_hunk(1, &["a"], &["b"])]);
-        assert!(!build_inline(&f, &RowOptions::default())
-            .rows
-            .iter()
-            .any(|e| matches!(e, Row::Header)));
+        assert!(
+            !build_inline(&f, &RowOptions::default())
+                .rows
+                .iter()
+                .any(|e| matches!(e, Row::Header))
+        );
         assert!(matches!(
             build_inline(
                 &f,

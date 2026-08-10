@@ -43,25 +43,25 @@ pub mod view;
 // Re-exported flat, so a consumer names a type once rather than tracking which level of the
 // diff it belongs to.
 pub use diff::layout::{
-    build_inline, build_split, GapState, Layout, Line, LinePair, Row, RowOptions,
+    GapState, Layout, Line, LinePair, Row, RowOptions, build_inline, build_split,
 };
 pub use diff::model::{
     DiffLine, DiffSet, Fetch, FetchState, FileChange, FileContent, FileDiff, FileMode, Hunk,
     LineKind, LineOrigin,
 };
-pub use diff::parse::{parse_unified_diff, ParseError};
-pub use diff::render::{render_diff, DiffPane};
+pub use diff::parse::{ParseError, parse_unified_diff};
+pub use diff::render::{DiffPane, render_diff};
 // A selection travels through three forms: the gesture, the durable spans it resolves to, and
 // the ranges those are painted as. One module owns each.
 pub use highlight::to_highlights;
-pub use selection::{clamp_to_run, run_bounds, to_spans, Caret, Selection};
+pub use selection::{Caret, Selection, clamp_to_run, run_bounds, to_spans};
 pub use span::{Document, LineSpan, SourceCharExtent};
 pub use text::{
-    display_column_of, map_span, measure_line, render_line, source_index_at, split_lines,
-    strip_terminator, LineEnding, RenderOptions,
+    LineEnding, RenderOptions, display_column_of, map_span, measure_line, render_line,
+    source_index_at, split_lines, strip_terminator,
 };
 pub use view::{Channel, DisplayColumnExtent, Highlight};
-pub use view::{DisplayedRow, Gap, RowClass, RowModel, GUTTER_COLUMNS};
+pub use view::{DisplayedRow, GUTTER_COLUMNS, Gap, RowClass, RowModel};
 
 // Machine-generated, and it names everything through full paths. That is correct for
 // generated code and not something to lint.

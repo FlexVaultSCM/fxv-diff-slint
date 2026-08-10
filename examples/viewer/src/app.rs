@@ -9,16 +9,16 @@ use std::rc::Rc;
 
 // == Internal Crates
 use fxv_diff_slint::{
-    build_inline, build_split, map_span, parse_unified_diff, render_diff, split_lines,
     CodeSelection, DiffPane, DiffSet, DisplayColumnExtent, DisplayedRow, Document, RenderOptions,
-    RowModel, RowOptions, Selection,
+    RowModel, RowOptions, Selection, build_inline, build_split, map_span, parse_unified_diff,
+    render_diff, split_lines,
 };
 
 // == External Crates
 use slint::{Brush, Color, ComponentHandle, Global, Model, ModelRc, SharedString, VecModel};
 
 // == Crate
-use crate::find::{diff_matches, log_match, match_ranges, Find, Found, CURRENT, SEARCH};
+use crate::find::{CURRENT, Find, Found, SEARCH, diff_matches, log_match, match_ranges};
 use crate::panes::{Panes, Tab, Which};
 use crate::samples::{Choice, PLAIN_FILES};
 use crate::ui::{self, MainWindow};

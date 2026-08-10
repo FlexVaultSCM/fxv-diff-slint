@@ -331,8 +331,8 @@ impl From<GapState> for ui::CodeGapState {
 mod tests {
     use super::*;
     use crate::diff::layout::Layout;
-    use crate::diff::layout::{build_inline, build_split, RowOptions};
-    use crate::diff::render::{render_diff, DiffPane};
+    use crate::diff::layout::{RowOptions, build_inline, build_split};
+    use crate::diff::render::{DiffPane, render_diff};
     use crate::span::Document;
     use crate::test_fixtures::{file, shown};
     use crate::text::RenderOptions;
