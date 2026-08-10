@@ -79,8 +79,8 @@ export component Harness inherits Window {
             gutter-columns: root.gutter-columns;
 
             gap-expand-requested(request) => {
-                root.asked-left = request.left-start;
-                root.asked-right = request.right-start;
+                root.asked-left = request.starts[0].line + request.offset;
+                root.asked-right = request.starts[1].line + request.offset;
                 root.asked-count = request.count;
             }
         }

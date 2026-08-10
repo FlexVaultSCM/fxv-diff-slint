@@ -1,7 +1,7 @@
 import { Button, ComboBox, LineEdit, TabWidget } from "std-widgets.slint";
 import {
     CodeView, DiffView, CodeScrollbar, CodeRow, CodeSelection, CodeStyle,
-    DiffGapExpandRequest,
+    CodeGapExpandRequest,
 } from "@FxvDiff";
 
 export component MainWindow inherits Window {
@@ -68,7 +68,7 @@ export component MainWindow inherits Window {
     // Rows are built for whichever layout is on screen, so switching needs a rebuild.
     callback layout-changed();
     // Forwarded from whichever view raised it; the host owns fetching the lines.
-    callback gap-expand-requested(DiffGapExpandRequest);
+    callback gap-expand-requested(CodeGapExpandRequest);
 
     // Ties the two panes together: both views bind to these, so moving either moves both.
     in-out property <length> shared-scroll-y: 0px;

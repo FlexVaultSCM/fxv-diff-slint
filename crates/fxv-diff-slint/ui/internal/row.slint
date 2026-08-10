@@ -1,5 +1,6 @@
 import { CodeStyle } from "style.slint";
-import { CodeRow, CodePosition } from "types.slint";
+import { CodeRow, CodeGapState, CodePosition, CodeGapExpandRequest } from "types.slint";
+import { GapButton } from "gap-button.slint";
 
 // One rendered row of any pane: a gutter carrying line numbers, then the line body.
 //
@@ -38,6 +39,10 @@ export component RowView {
     in property <CodePosition> sel-end: { row: -1, column: 0 };
     /// Whether dragging selects at all.
     in property <bool> selectable: false;
+
+    // Whether this row stands for content that is not shown. Hidden content is not a diff
+    // idea: anything showing part of a document has it.
+    out property <bool> in-a-gap: root.data.gap.hidden-count > 0;
 
     // Whether this row may be part of a selection. A row outside every run has an empty one,
     // which is how a gap or a header says it breaks a selection rather than joining it.
@@ -227,6 +232,134 @@ export component RowView {
                 font-size: CodeStyle.font-size;
                 color: CodeStyle.gutter-text-color;
             }
+        }
+    }
+
+    /// Asks for `count` of the lines this gap is hiding, starting at the given place in each
+    /// document it spans.
+    callback expand(CodeGapExpandRequest);
+    /// How many lines one step of a gap opens.
+    in property <int> expand-step: 20;
+    /// Whether a gap offers to open at all. Off when nobody can fetch the lines.
+    in property <bool> gap-expandable: false;
+    /// Whether some fetch is running anywhere in this view, which blocks every gap's controls.
+    in property <bool> gap-busy: false;
+    /// Whether this pane spells a gap out, or just leaves a band where one is.
+    ///
+    /// The same gap is drawn twice when two panes show the same content side by side. Saying
+    /// so twice reads as two gaps, and repeating a failure message in half the width truncates
+    /// it. So one pane carries the detail and the other only marks the place.
+    in property <bool> gap-details: true;
+
+    // How much one step opens, never more than the gap holds.
+    out property <int> step: min(root.expand-step, root.data.gap.hidden-count);
+    // Opening from one end only makes sense when a step leaves something behind.
+    out property <bool> stepped: root.data.gap.hidden-count > root.expand-step;
+
+    out property <bool> gap-waiting: root.in-a-gap
+        && root.data.gap.state == CodeGapState.waiting;
+    out property <bool> gap-failed: root.in-a-gap
+        && root.data.gap.state == CodeGapState.failed;
+
+    // Controls are drawn whenever a gap could be opened at all, in every state. A failure
+    // leaves them exactly as they were, so retrying is clicking the same control again rather
+    // than hunting for a different one, and the row never changes shape underneath a pointer.
+    out property <bool> gap-openable: root.in-a-gap && root.gap-expandable;
+    // Only this gap's controls stop while this gap is fetching. Another gap is another
+    // request about other lines, and blocking it would be this row speaking for rows it knows
+    // nothing about. A host that can only serve one at a time sets `gap-busy` to say so.
+    out property <bool> gap-blocked: root.gap-waiting || root.gap-busy;
+
+    // What each control would ask for, so the one that is working can be told from the run the
+    // model says is in flight. Derived rather than remembered: the row is rebuilt the moment
+    // the fetch is recorded, which throws away anything it was holding.
+    out property <int> down-start: root.data.gap.starts[0].line;
+    out property <int> up-start:
+        root.data.gap.starts[0].line + root.data.gap.hidden-count - root.step;
+    function working(start: int, count: int) -> bool {
+        root.gap-waiting && root.data.gap.busy-start == start && root.data.gap.busy-count == count
+    }
+
+
+    // A gap's controls and its label, pinned together against the visible left edge so they
+    // stay put while the rest of the row scrolls sideways.
+    //
+    // One layout for both, rather than the label sitting in the body above, because then the
+    // label simply lands after whatever controls the gap's state calls for. Positioning it by
+    // hand would mean predicting their combined width, and that width depends on the digits in
+    // a line count and on whether icons have been supplied.
+    //
+    // A gap can be opened a piece at a time from either end, which is what makes a large one
+    // usable: a few lines of extra context is the common need, not the whole span. When the
+    // gap is no larger than a step there is only one thing to do, so only one control shows.
+    if root.in-a-gap && root.gap-details: HorizontalLayout {
+        x: -root.scroll-x + CodeStyle.gutter-padding;
+        y: 0;
+        height: parent.height;
+        spacing: CodeStyle.gutter-padding;
+        // Otherwise the group spreads across the row rather than sitting at the margin.
+        alignment: start;
+
+        if root.gap-openable && root.stepped: GapButton {
+            icon: CodeStyle.gap-expand-down-icon;
+            label: root.step;
+            busy: root.working(root.down-start, root.step);
+            blocked: root.gap-blocked;
+            // Opens the top of the gap, next to the hunk above it.
+            clicked => {
+                root.expand({ starts: root.data.gap.starts, offset: 0, count: root.step });
+            }
+        }
+
+        if root.gap-openable && root.stepped: GapButton {
+            icon: CodeStyle.gap-expand-up-icon;
+            label: root.step;
+            busy: root.working(root.up-start, root.step);
+            blocked: root.gap-blocked;
+            // Opens the bottom, next to the hunk below.
+            clicked => {
+                root.expand({
+                    starts: root.data.gap.starts,
+                    offset: root.data.gap.hidden-count - root.step,
+                    count: root.step,
+                });
+            }
+        }
+
+        if root.gap-openable: GapButton {
+            icon: CodeStyle.gap-expand-all-icon;
+            label: root.data.gap.hidden-count;
+            busy: root.working(root.down-start, root.data.gap.hidden-count);
+            blocked: root.gap-blocked;
+            clicked => {
+                root.expand({
+                    starts: root.data.gap.starts,
+                    offset: 0,
+                    count: root.data.gap.hidden-count,
+                });
+            }
+        }
+
+        i-gap-text := Text {
+            // Read back by the widget tests, since what a band drew is otherwise invisible.
+            accessible-role: text;
+            accessible-label: self.text;
+            // How many lines the gap stands for and what is happening to them. `gap.note` is
+            // the hunk heading, or the reason a fetch failed, so this reads as
+            // "12 hidden    fn thing()" or "12 could not be read    no such revision".
+            // Kept at its natural width so a long failure message runs past the pane edge and
+            // is clipped there, rather than being squeezed into whatever the layout has left.
+            width: self.preferred-width;
+            text: root.data.gap.hidden-count
+                + (root.gap-waiting ? " loading"
+                    : root.gap-failed ? " could not be read"
+                    : " hidden")
+                + (root.data.gap.note == "" ? "" : "    " + root.data.gap.note);
+            font-family: CodeStyle.font-family;
+            font-size: CodeStyle.font-size;
+            letter-spacing: root.letter-spacing;
+            color: CodeStyle.text-color;
+            vertical-alignment: center;
         }
     }
 

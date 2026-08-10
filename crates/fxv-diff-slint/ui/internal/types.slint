@@ -130,15 +130,19 @@ export struct CodeRow {
 // A request for some of the lines a gap is hiding. The host fetches them however it likes and
 // hands them back; this crate performs no IO.
 //
-// A gap can be opened a piece at a time, so this names a run rather than the whole gap. Both
-// line numbers are given because the same content sits at different numbers on each side, and
-// the host may hold either version of the file.
-export struct DiffGapExpandRequest {
-    // 1-based, inclusive, on each side.
-    left-start: int,
-    right-start: int,
+// A gap can be opened a piece at a time, so this names a run rather than the whole gap.
+// `starts` is where the gap begins in each document it spans, `offset` how far into the gap the
+// run begins, and `count` how many lines it wants. A host reads line `starts[i].line + offset`
+// onward from document `starts[i].document`.
+//
+// An offset rather than shifted starts, because the run has to move in every document at once
+// and Slint cannot map over an array in an expression.
+export struct CodeGapExpandRequest {
+    starts: [CodeLine],
+    offset: int,
     count: int,
 }
+
 
 // The row classes this crate produces, by name.
 //

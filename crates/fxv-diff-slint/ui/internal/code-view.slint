@@ -3,7 +3,9 @@ import { CodeStyle } from "style.slint";
 import { GridMetrics } from "metrics.slint";
 import { CodeMath } from "code-math.slint";
 import { RowView } from "row.slint";
-import { CodeRow, CodeLine, CodePosition, CodeSelection } from "types.slint";
+import {
+    CodeRow, CodeGapExpandRequest, CodeLine, CodePosition, CodeSelection,
+} from "types.slint";
 
 // A pane of monospace text: line numbers, highlights, selection, and both axes scrolling.
 //
@@ -61,6 +63,26 @@ export component CodeView {
     /// Raised when a drag finishes, which is when the selection is worth resolving to spans.
     callback selection-finished(CodeSelection);
     callback line-clicked(CodeLine);
+
+    /// How many lines one step of a gap opens.
+    in property <int> gap-expand-step: 20;
+    /// Whether gaps offer to open.
+    ///
+    /// Off by default, because opening one is a request the host has to answer and there is no
+    /// way for this view to know whether it can. A diff with nothing behind it still shows its
+    /// gaps, so the file does not read as continuous, but without controls that lead nowhere.
+    in property <bool> gap-expandable: false;
+    /// Whether this view spells a gap out, or just leaves a band where one is. One pane of a
+    /// split carries the detail; the other would only repeat it in half the width.
+    in property <bool> gap-details: true;
+    /// Whether a fetch is running, which blocks every gap's controls until it answers.
+    ///
+    /// Set by the host, because only the host knows whether it can serve more than one at a
+    /// time. Left false, each gap still blocks its own controls while it waits.
+    in property <bool> gap-busy: false;
+
+    callback gap-expand-requested(CodeGapExpandRequest);
+
 
     i-metrics := GridMetrics { }
 
@@ -165,6 +187,15 @@ export component CodeView {
                     anchor: root.selection-anchor,
                     focus: root.selection-focus,
                 });
+            }
+
+            expand-step: root.gap-expand-step;
+            gap-expandable: root.gap-expandable;
+            gap-details: root.gap-details;
+            gap-busy: root.gap-busy;
+
+            expand(request) => {
+                root.gap-expand-requested(request);
             }
 
             clicked => {

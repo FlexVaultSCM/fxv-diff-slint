@@ -8,7 +8,7 @@ use std::rc::Rc;
 use std::time;
 
 // == External Crates
-use slint::{ComponentHandle, Timer};
+use slint::{ComponentHandle, Model, Timer};
 
 // == Crate
 mod app;
@@ -17,6 +17,7 @@ mod panes;
 mod samples;
 
 use app::App;
+use fxv_diff_slint::Document;
 use samples::{fetch, SAMPLES};
 
 // Machine-generated; see the note on the library's `ui` module.
@@ -73,7 +74,17 @@ fn main() -> Result<(), slint::PlatformError> {
             };
             let index = choice.file;
             let source = choice.source();
-            let start = request.right_start.max(1) as u32;
+            // The request says where the gap begins in each document and how far into it the
+            // wanted run starts, so a host adds the two. A diff spans two documents, written
+            // before then after.
+            let at = |document: Document| -> u32 {
+                request
+                    .starts
+                    .iter()
+                    .find(|at| at.document == document.0 as i32)
+                    .map_or(1, |at| (at.line + request.offset).max(1) as u32)
+            };
+            let start = at(Document::AFTER);
             let count = request.count.max(0) as u32;
 
             if let Some(file) = app.diff.borrow_mut().files.get_mut(index) {
@@ -87,7 +98,7 @@ fn main() -> Result<(), slint::PlatformError> {
             // Answering on a timer instead of straight away is what makes the waiting and
             // failure states reachable here at all.
             let app = app.clone();
-            let left = request.left_start.max(1) as u32;
+            let left = at(Document::BEFORE);
             let timer = Timer::default();
             timer.start(
                 slint::TimerMode::SingleShot,

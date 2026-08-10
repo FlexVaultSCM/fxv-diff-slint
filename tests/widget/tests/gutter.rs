@@ -123,7 +123,7 @@ fn a_gap_shows_its_heading_beside_the_count() {
     settle();
 
     let shown: Vec<String> =
-        i_slint_backend_testing::ElementHandle::find_by_element_id(&h, "DiffRowView::i-gap-text")
+        i_slint_backend_testing::ElementHandle::find_by_element_id(&h, "RowView::i-gap-text")
             .filter_map(|e| e.accessible_label().map(|l| l.to_string()))
             .collect();
 

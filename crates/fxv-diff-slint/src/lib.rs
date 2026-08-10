@@ -75,6 +75,6 @@ pub mod ui {
 }
 
 pub use ui::{
-    CodeGapState, CodeLine, CodePosition, CodeRow, CodeSelection, CodeStyle, DiffGapExpandRequest,
+    CodeGapExpandRequest, CodeGapState, CodeLine, CodePosition, CodeRow, CodeSelection, CodeStyle,
     DiffView,
 };
